@@ -1,0 +1,13 @@
+Installation
+------------
+cd /tmp
+mkdir butch
+cd butch
+git clone https://github.com/rofl0r/butch
+git clone https://github.com/rofl0r/libulz lib
+git clone https://github.com/rofl0r/rcb
+export PATH=$PATH:/tmp/butch/rcb
+ln -s /tmp/butch/rcb/rcb.pl /tmp/butch/rcb/rcb
+cd butch
+make
+
