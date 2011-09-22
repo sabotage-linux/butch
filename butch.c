@@ -634,5 +634,10 @@ int main(int argc, char** argv) {
 	
 	// TODO free contents of all packages, config, ...
 	
+	log_timestamp(1);
+	log_putspace(1);
+	log_puts(1, SPL("done."));
+	log_putln(1);
+	
 	return failed;
 }
