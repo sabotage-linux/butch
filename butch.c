@@ -443,11 +443,6 @@ void launch_thread(int ptype, pkgstate* state, pkg* item) {
 	}
 }
 
-static inline size_t min_s(size_t a, size_t b) {
-	if (a < b) return a;
-	return b;
-}
-
 int has_all_deps(pkgstate* state, pkg* item) {
 	size_t i;
 	pkg* dlitem;
@@ -633,7 +628,11 @@ int main(int argc, char** argv) {
 	
 	while(process_queue(&state)) sleep(1);
 	
-	// free contents of all stringptrlists...
+	int failed = stringptrlist_getsize(state.build_errors) != 0;
+	stringptrlist_freeall(state.build_errors);
+	stringptrlist_freeall(state.installed_packages);
 	
-	return 0;
+	// TODO free contents of all packages, config, ...
+	
+	return failed;
 }
