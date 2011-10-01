@@ -37,7 +37,7 @@
 #include <string.h>
 #include <sys/time.h>
 
-#include "sha2.h"
+#include "../sha2.h"
 
 #define BUFSIZE	16384
 

@@ -38,7 +38,7 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#include "sha2.h"
+#include "../sha2.h"
 
 void usage(char *prog, char *msg) {
 	fprintf(stderr, "%s\nUsage:\t%s [options] [<file>]\nOptions:\n\t-256\tGenerate SHA-256 hash\n\t-384\tGenerate SHA-284 hash\n\t-512\tGenerate SHA-512 hash\n\t-ALL\tGenerate all three hashes\n\t-q\tQuiet mode - only output hexadecimal hashes, one per line\n\n", msg, prog);
