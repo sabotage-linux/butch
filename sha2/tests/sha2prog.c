@@ -31,6 +31,7 @@
  *
  */
 
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sysexits.h>
@@ -41,7 +42,8 @@
 #include "../sha2.h"
 
 void usage(char *prog, char *msg) {
-	fprintf(stderr, "%s\nUsage:\t%s [options] [<file>]\nOptions:\n\t-256\tGenerate SHA-256 hash\n\t-384\tGenerate SHA-284 hash\n\t-512\tGenerate SHA-512 hash\n\t-ALL\tGenerate all three hashes\n\t-q\tQuiet mode - only output hexadecimal hashes, one per line\n\n", msg, prog);
+	fprintf(stderr, "%s\nUsage:\t%s [options] [<file>]\nOptions:\n\t-256\tGenerate SHA-256 hash\n\t-384\tGenerate SHA-284 hash\n"
+	"\t-512\tGenerate SHA-512 hash\n\t-ALL\tGenerate all three hashes\n\t-q\tQuiet mode - only output hexadecimal hashes, one per line\n\n", msg, prog);
 	exit(-1);
 }
 
@@ -109,19 +111,19 @@ int main(int argc, char **argv) {
 	}
 
 	if (hash & 1) {
-		SHA256_End(&ctx256, buf);
+		SHA256_End(&ctx256, (char*)buf);
 		if (!quiet)
 			printf("SHA-256 (%s) = ", file);
 		printf("%s\n", buf);
 	}
 	if (hash & 2) {
-		SHA384_End(&ctx384, buf);
+		SHA384_End(&ctx384, (char*)buf);
 		if (!quiet)
 			printf("SHA-384 (%s) = ", file);
 		printf("%s\n", buf);
 	}
 	if (hash & 4) {
-		SHA512_End(&ctx512, buf);
+		SHA512_End(&ctx512, (char*)buf);
 		if (!quiet)
 			printf("SHA-512 (%s) = ", file);
 		printf("%s\n", buf);
