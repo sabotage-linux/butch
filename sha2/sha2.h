@@ -39,6 +39,10 @@
 extern "C" {
 #endif
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 
 /*
  * Import u_intXX_t size_t type definitions from system headers.  You
@@ -195,3 +199,4 @@ char* SHA512_Data();
 
 #endif /* __SHA2_H__ */
 
+//RcB: DEP "*.c"

@@ -31,6 +31,12 @@
  *
  */
 
+#ifdef _POSIX_C_SOURCE
+#undef _POSIX_C_SOURCE
+#endif
+#define _POSIX_C_SOURCE 200809L
+
+
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,14 +60,26 @@ int main(int argc, char **argv) {
 	int		quiet = 0, hash = 0;
 	char		*av, *file = (char*)0;
 	FILE		*IN = (FILE*)0;
+#ifdef USE_SHA256	
 	SHA256_CTX	ctx256;
+#endif
+#ifdef USE_SHA384	
 	SHA384_CTX	ctx384;
+#endif
+#ifdef USE_SHA512	
 	SHA512_CTX	ctx512;
+#endif
 	unsigned char	buf[BUFLEN];
 
+#ifdef USE_SHA256
 	SHA256_Init(&ctx256);
+#endif
+#ifdef USE_SHA384	
 	SHA384_Init(&ctx384);
+#endif
+#ifdef USE_SHA512	
 	SHA512_Init(&ctx512);
+#endif
 
 	/* Read data from STDIN by default */
 	fd = fileno(stdin);
@@ -102,33 +120,44 @@ int main(int argc, char **argv) {
 	kl = 0;
 	while ((l = read(fd,buf,BUFLEN)) > 0) {
 		kl += l;
+#ifdef USE_SHA256
 		SHA256_Update(&ctx256, (unsigned char*)buf, l);
+#endif
+#ifdef USE_SHA384
 		SHA384_Update(&ctx384, (unsigned char*)buf, l);
+#endif
+#ifdef USE_SHA512
 		SHA512_Update(&ctx512, (unsigned char*)buf, l);
+#endif
 	}
 	if (file) {
 		fclose(IN);
 	}
-
+#ifdef USE_SHA256
 	if (hash & 1) {
 		SHA256_End(&ctx256, (char*)buf);
 		if (!quiet)
 			printf("SHA-256 (%s) = ", file);
 		printf("%s\n", buf);
 	}
+#endif
+#ifdef USE_SHA384
 	if (hash & 2) {
 		SHA384_End(&ctx384, (char*)buf);
 		if (!quiet)
 			printf("SHA-384 (%s) = ", file);
 		printf("%s\n", buf);
 	}
+#endif
+#ifdef USE_SHA512
+	
 	if (hash & 4) {
 		SHA512_End(&ctx512, (char*)buf);
 		if (!quiet)
 			printf("SHA-512 (%s) = ", file);
 		printf("%s\n", buf);
 	}
-
+#endif
 	return 1;
 }
 
