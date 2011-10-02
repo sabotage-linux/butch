@@ -24,6 +24,7 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <errno.h>
 
 #include "../lib/include/stringptrlist.h"
 #include "../lib/include/stringptr.h"
@@ -32,6 +33,8 @@
 #include "../lib/include/fileparser.h"
 #include "../lib/include/iniparser.h"
 #include "../lib/include/filelib.h"
+
+#include "sha2/sha2.h"
 
 #define NUM_DL_THREADS 16
 #define NUM_BUILD_THREADS 2
@@ -44,7 +47,9 @@ typedef enum {
 } pkgcommands;
 
 typedef struct {
-	stringptr* tardir;
+	uint64_t filesize;
+	stringptr* tardir; //needed for tarballs that dont extract to a directory of the same name
+	stringptr* sha512;
 	stringptrlist* deps;
 	stringptrlist* mirrors;
 	stringptrlist* buildscript;
@@ -192,6 +197,18 @@ void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata* out) 
 		}
 		out->tardir = stringptr_copy(&fe);
 	}
+	
+	iniparser_getvalue(ini, &sec, SPL("sha512"), &val);
+	if(val.size)
+		out->sha512 = stringptr_copy(&val);
+	else
+		out->sha512 = NULL;
+	
+	iniparser_getvalue(ini, &sec, SPL("filesize"), &val);
+	if(val.size)
+		out->filesize = strtoint64(val.ptr, val.size);
+	else
+		out->filesize = 0;
 	
 	sec = iniparser_get_section(ini, SPL("deps"));
 	out->deps = stringptrlist_new(sec.linecount);
@@ -518,6 +535,54 @@ void warn_errors(pkgstate* state) {
 	}
 }
 
+//return 0 on success.
+//checks if filesize and/or sha512 matches, if used.
+int verify_download(pkgconfig* cfg, pkg* package) {
+	char buf[4096];
+	char* error;
+	SHA512_CTX ctx;
+	int fd;
+	uint64_t pos, len = 0, nread;
+	stringptr hash;
+	get_tarball_filename_with_path(cfg, &package->data, buf, sizeof(buf));
+	if(package->data.filesize) {
+		len = getfilesize(buf);
+		if(len < package->data.filesize) {
+			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" filesize too small!"), NULL);
+			return 1;
+		} else if (len > package->data.filesize) {
+			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" filesize too big!"), NULL);
+			return 2;
+		}
+	}
+	if(package->data.sha512) {
+		if(!len) len = getfilesize(buf);
+			
+		fd = open(buf, O_RDONLY);
+		if(fd == -1) {
+			error = strerror(errno);
+			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" failed to open: "), VARIC(error), NULL);
+			return 3;
+		}
+		SHA512_Init(&ctx);
+		pos = 0;
+		while(pos < len) {
+			nread = read(fd, buf, sizeof(buf));
+			SHA512_Update(&ctx, (const uint8_t*) buf, nread);
+			pos += nread;
+		}
+		close(fd);
+		SHA512_End(&ctx, (char*) buf);
+		hash.ptr = buf; hash.size = strlen(buf);
+		if(!EQ(&hash, package->data.sha512)) {
+			log_put(2, VARISL("WARNING: "), VARIS(&package->name), VARISL(" sha512 mismatch, got "), 
+				VARIS(&hash), VARISL(", expected "), VARIS(package->data.sha512), NULL);
+			return 4;
+		}
+	}
+	return 0;
+}
+
 int process_queue(pkgstate* state) {
 	size_t i;
 	int retval, ret;
@@ -536,7 +601,14 @@ int process_queue(pkgstate* state) {
 					log_perror("waitpid");
 					goto retry;
 				}
-				if(!retval) listitem->pid = 0; // 0 means finished.
+				if(!retval) {
+					ret = verify_download(&state->cfg, listitem);
+					if(ret == 1) { // download too small, retry...
+						log_put(2, VARISL("retrying too short download of "), VARIS(&listitem->name));
+						listitem->pid = -1;
+					} else // do not retry on success, hash mismatch or too big file.
+						listitem->pid = 0; // 0 means finished.
+				}
 				else {
 					log_put(2, VARISL("got error "), VARII(WEXITSTATUS(retval)), VARISL(" from download script of "), VARIS(&listitem->name) ,VARISL(", retrying"), NULL);
 					retry:
