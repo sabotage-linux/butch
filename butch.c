@@ -395,6 +395,7 @@ int create_script(int ptype, pkgstate* state, pkg* item) {
 			stringptr_fromchar(buf, &tb),
 			SPL(" -c "),
 			stringptrlist_get(item->data.mirrors, rand() % stringptrlist_getsize(item->data.mirrors)),
+			SPL(" --no-check-certificate"),
 			NULL);
 		
 	} else if (ptype == 1) {
