@@ -488,7 +488,7 @@ void fill_slots(jobtype ptype, pkgstate* state) {
 	for(i = 0; *slots && i < sblist_getsize(queue); i++) {
 		item = sblist_get(queue, i);
 		if(item->pid == -1) {
-			if(ptype == 0 || has_all_deps(state, item)) {
+			if(ptype == JT_DOWNLOAD || has_all_deps(state, item)) {
 				launch_thread(ptype, state, item);
 				(*slots)--;
 			}
@@ -524,13 +524,15 @@ void print_info(pkgstate* state) {
 
 void mark_finished(pkgstate* state, stringptr* name) {
 	char buf[256];
-	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
-	stringptrlist_add(state->installed_packages, stringptr_strdup(name), name->size);
-	int fd = open(buf, O_WRONLY | O_CREAT | O_APPEND, 0664);
-	if(fd == -1) die(SPL("error couldnt write to installed.dat!"));
-	write(fd, name->ptr, name->size);
-	write(fd, "\n", 1);
-	close(fd);
+	if(!stringptrlist_contains(state->installed_packages, name)) {
+		ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
+		stringptrlist_add(state->installed_packages, stringptr_strdup(name), name->size);
+		int fd = open(buf, O_WRONLY | O_CREAT | O_APPEND, 0664);
+		if(fd == -1) die(SPL("error couldnt write to installed.dat!"));
+		write(fd, name->ptr, name->size);
+		write(fd, "\n", 1);
+		close(fd);
+	}
 }
 
 void warn_errors(pkgstate* state) {
