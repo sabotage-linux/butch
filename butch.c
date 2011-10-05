@@ -224,7 +224,7 @@ void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata* out) 
 	}
 	
 	sec = iniparser_get_section(ini, SPL("build")); // the build section has always to come last
-	if(sec.startline) {
+	if(sec.startline || sec.linecount) {
 		start = sec.startline;
 		sec = iniparser_file_as_section(ini); // iniparser may disinterpret lines starting with [
 		// so be sure to use the entire rest of the file
