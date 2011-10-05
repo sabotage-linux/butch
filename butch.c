@@ -91,6 +91,11 @@ typedef struct {
 	procslots slots;
 } pkgstate;
 
+typedef enum {
+	JT_DOWNLOAD,
+	JT_BUILD
+} jobtype;
+
 __attribute__((noreturn))
 void die(stringptr* message) {
 	log_puts(2, message);
@@ -370,14 +375,14 @@ stringptr* make_config(pkgconfig* cfg) {
 	return result;
 }
 
-int create_script(int ptype, pkgstate* state, pkg* item) {
+int create_script(jobtype ptype, pkgstate* state, pkg* item) {
 	stringptr* temp, *config, tb;
 	char* prefix;
 	char buf[256];
 	int hastarball;
-	if(ptype == 0) {
+	if(ptype == JT_DOWNLOAD) {
 		prefix = "dl";
-	} else if (ptype == 1) {
+	} else if (ptype == JT_BUILD) {
 		prefix = "build";
 	} else abort();
 	temp = stringptr_format("%s/%s_%s.sh", state->cfg.pkgroot.ptr, prefix, item->name.ptr);
@@ -387,7 +392,7 @@ int create_script(int ptype, pkgstate* state, pkg* item) {
 	config = make_config(&state->cfg);
 	hastarball = get_tarball_filename(&item->data, buf, sizeof(buf));
 	
-	if(ptype == 0) {
+	if(ptype == JT_DOWNLOAD) {
 		if(!hastarball) abort(); //bug
 		temp = stringptr_concat(SPL("#!/bin/sh\n"),
 			config,
@@ -398,7 +403,7 @@ int create_script(int ptype, pkgstate* state, pkg* item) {
 			SPL(" --no-check-certificate"),
 			NULL);
 		
-	} else if (ptype == 1) {
+	} else if (ptype == JT_BUILD) {
 		stringptr* buildscr = stringptrlist_tostring(item->data.buildscript);
 		
 		if(!hastarball) {
@@ -431,13 +436,13 @@ int create_script(int ptype, pkgstate* state, pkg* item) {
 
 extern char** environ;
 
-void launch_thread(int ptype, pkgstate* state, pkg* item) {
+void launch_thread(jobtype ptype, pkgstate* state, pkg* item) {
 	posix_spawn_file_actions_t fa;
 	char* arr[2];
 	create_script(ptype, state, item);
 	log_timestamp(1);
 	log_putspace(1);
-	if(ptype == 0) {
+	if(ptype == JT_DOWNLOAD) {
 		log_puts(1, SPL("downloading "));
 	} else 
 		log_puts(1, SPL("building "));
@@ -475,11 +480,11 @@ int has_all_deps(pkgstate* state, pkg* item) {
 	return (!stringptrlist_getsize(item->data.mirrors) || has_tarball(&state->cfg, &item->data));
 }
 
-void fill_slots(int ptype, pkgstate* state) {
+void fill_slots(jobtype ptype, pkgstate* state) {
 	size_t i;
 	pkg* item;
-	int* slots = ptype == 0 ? &state->slots.dl_slots : &state->slots.build_slots;
-	sblist* queue = ptype == 0 ? state->dl_queue : state->build_queue;
+	int* slots = (ptype == JT_DOWNLOAD) ? &state->slots.dl_slots : &state->slots.build_slots;
+	sblist* queue = (ptype == JT_DOWNLOAD) ? state->dl_queue : state->build_queue;
 	for(i = 0; *slots && i < sblist_getsize(queue); i++) {
 		item = sblist_get(queue, i);
 		if(item->pid == -1) {
@@ -494,7 +499,8 @@ void fill_slots(int ptype, pkgstate* state) {
 void prepare_queue(pkgstate* state) {
 	state->slots.build_slots = NUM_BUILD_THREADS;
 	state->slots.dl_slots = NUM_DL_THREADS;
-	fill_slots(0, state);
+	fill_slots(JT_DOWNLOAD, state);
+	fill_slots(JT_BUILD, state);
 }
 
 void print_info(pkgstate* state) {
@@ -619,7 +625,7 @@ int process_queue(pkgstate* state) {
 		}
 	}
 	
-	if(state->slots.dl_slots) fill_slots(0, state);
+	if(state->slots.dl_slots) fill_slots(JT_DOWNLOAD, state);
 	
 	for(i = 0; i < sblist_getsize(state->build_queue); i++) {
 		listitem = sblist_get(state->build_queue, i);
@@ -640,12 +646,11 @@ int process_queue(pkgstate* state) {
 						stringptrlist_add(state->build_errors, stringptr_strdup(&listitem->name), listitem->name.size);
 					}
 				}
-				fill_slots(1, state);
 			}
 		}
 	}
 	
-	if(state->slots.build_slots) fill_slots(1, state);
+	if(state->slots.build_slots) fill_slots(JT_BUILD, state);
 	
 	if(had_event) warn_errors(state);
 	
