@@ -377,6 +377,8 @@ stringptr* make_config(pkgconfig* cfg) {
 
 int create_script(jobtype ptype, pkgstate* state, pkg* item) {
 	stringptr* temp, *config, tb;
+	stringptr* set_cc = SPL("if [ -z \"$CC\" ] ; then\n\tCC=cc\nfi");
+	
 	char* prefix;
 	char buf[256];
 	int hastarball;
@@ -409,15 +411,25 @@ int create_script(jobtype ptype, pkgstate* state, pkg* item) {
 		if(!hastarball) {
 			temp = stringptr_concat(SPL("#!/bin/sh\n"), 
 				config,
+				set_cc,
 				buildscr,
 				NULL);
 		} else {
+			if(item->data.tardir->size && item->data.tardir->ptr[0] == '/') 
+				// prevent erroneus scripts from trash our fs
+				abort();
 			
 			temp = stringptr_concat(SPL("#!/bin/sh\n"), 
 				config,
-				SPL("cd $S\ntar xf $C/"), 
+				set_cc,
+				SPL("cd $S\n"), 
+				SPL("[ -e "),
+				item->data.tardir,
+				SPL(" ] && rm -rf "),
+				item->data.tardir,
+				SPL("\ntar xf $C/"), 
 				stringptr_fromchar(buf, &tb),
-				SPL("\ncd $S/"),
+				SPL(" || (echo tarball error; exit 1)\ncd $S/"),
 				item->data.tardir,
 				SPL("\n"),
 				buildscr,
