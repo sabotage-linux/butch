@@ -377,7 +377,7 @@ stringptr* make_config(pkgconfig* cfg) {
 
 int create_script(jobtype ptype, pkgstate* state, pkg* item) {
 	stringptr* temp, *config, tb;
-	stringptr* set_cc = SPL("if [ -z \"$CC\" ] ; then\n\tCC=cc\nfi");
+	stringptr* set_cc = SPL("if [ -z \"$CC\" ] ; then\n\tCC=cc\nfi\n");
 	
 	char* prefix;
 	char buf[256];
