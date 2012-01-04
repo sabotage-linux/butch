@@ -10,6 +10,23 @@
 #  define assert(X) do { } while (0);
 #endif
 
+#ifdef __linux
+#include <endian.h>
+#else
+#include <machine/endian.h>
+#endif
+
+#ifndef BYTE_ORDER
+#define BYTE_ORDER __BYTE_ORDER
+#endif
+
+#ifndef LITTLE_ENDIAN
+#define LITTLE_ENDIAN __LITTLE_ENDIAN
+#endif
+
+#ifndef BIG_ENDIAN
+#define BIG_ENDIAN __BIG_ENDIAN
+#endif
 
 /*** SHA-256/384/512 Machine Architecture Definitions *****************/
 /*
