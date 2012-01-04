@@ -64,6 +64,7 @@ typedef struct {
 	stringptr name;
 	pkgdata data;
 	pid_t pid;
+	posix_spawn_file_actions_t fa;
 	scriptinfo scripts;
 } pkg;
 
@@ -449,7 +450,6 @@ int create_script(jobtype ptype, pkgstate* state, pkg* item) {
 extern char** environ;
 
 void launch_thread(jobtype ptype, pkgstate* state, pkg* item) {
-	posix_spawn_file_actions_t fa;
 	char* arr[2];
 	create_script(ptype, state, item);
 	log_timestamp(1);
@@ -464,14 +464,14 @@ void launch_thread(jobtype ptype, pkgstate* state, pkg* item) {
 	arr[0] = item->scripts.filename.ptr;
 	arr[1] = NULL;
 	
-	posix_spawn_file_actions_init(&fa);
-	posix_spawn_file_actions_addclose(&fa, 0);
-	posix_spawn_file_actions_addclose(&fa, 1);
-	posix_spawn_file_actions_addclose(&fa, 2);
-	posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
-	posix_spawn_file_actions_addopen(&fa, 1, item->scripts.stdoutfn.ptr, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-	posix_spawn_file_actions_adddup2(&fa, 1, 2);
-	int ret = posix_spawnp(&item->pid, arr[0], &fa, NULL, arr, environ);
+	posix_spawn_file_actions_init(&item->fa);
+	posix_spawn_file_actions_addclose(&item->fa, 0);
+	posix_spawn_file_actions_addclose(&item->fa, 1);
+	posix_spawn_file_actions_addclose(&item->fa, 2);
+	posix_spawn_file_actions_addopen(&item->fa, 0, "/dev/null", O_RDONLY, 0);
+	posix_spawn_file_actions_addopen(&item->fa, 1, item->scripts.stdoutfn.ptr, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+	posix_spawn_file_actions_adddup2(&item->fa, 1, 2);
+	int ret = posix_spawnp(&item->pid, arr[0], &item->fa, NULL, arr, environ);
 	if(ret == -1) {
 		log_perror("posix_spawn");
 		die(SPL(""));
@@ -618,6 +618,7 @@ int process_queue(pkgstate* state) {
 			if(ret != 0) {
 				had_event = 1;
 				state->slots.dl_slots++;
+				posix_spawn_file_actions_destroy(&listitem->fa);
 				if(ret == -1) {
 					log_perror("waitpid");
 					goto retry;
@@ -648,6 +649,7 @@ int process_queue(pkgstate* state) {
 			if(ret != 0) {
 				had_event = 1;
 				state->slots.build_slots++;
+				posix_spawn_file_actions_destroy(&listitem->fa);
 				if(ret == -1) {
 					log_perror("waitpid");
 					listitem->pid = -1; // retrying;
