@@ -401,7 +401,7 @@ int create_script(jobtype ptype, pkgstate* state, pkg* item) {
 			config,
 			SPL("wget -O $C/"),
 			stringptr_fromchar(buf, &tb),
-			SPL(" -c "),
+			SPL(" "),
 			stringptrlist_get(item->data.mirrors, rand() % stringptrlist_getsize(item->data.mirrors)),
 			SPL(" --no-check-certificate"),
 			NULL);
