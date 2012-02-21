@@ -59,8 +59,8 @@ typedef struct {
 } pkgdata;
 
 typedef struct {
-	stringptr filename;
-	stringptr stdoutfn;
+	stringptr* filename;
+	stringptr* stdoutfn;
 } scriptinfo;
 
 typedef struct {
@@ -438,11 +438,12 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 		prefix = "dl";
 	} else if (ptype == JT_BUILD) {
 		prefix = "build";
-	} else abort();
-	temp = stringptr_format("%s/%s_%s.sh", state->cfg.pkgroot.ptr, prefix, item->name->ptr);
-	item->scripts.filename = *temp;
-	temp = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr); 
-	item->scripts.stdoutfn = *temp;
+	} else
+		abort();
+	
+	item->scripts.filename = stringptr_format("%s/%s_%s.sh", state->cfg.pkgroot.ptr, prefix, item->name->ptr);
+	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr); 
+	
 	config = make_config(&state->cfg);
 	hastarball = get_tarball_filename(data, buf, sizeof(buf));
 	
@@ -492,8 +493,9 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 		
 	} else abort();
 
-	stringptr_tofile(item->scripts.filename.ptr, temp);
-	if(chmod(item->scripts.filename.ptr, 0777) == -1) die(SPL("error setting permission"));
+	stringptr_tofile(item->scripts.filename->ptr, temp);
+	if(chmod(item->scripts.filename->ptr, 0777) == -1) die(SPL("error setting permission"));
+	stringptr_free(config);
 	stringptr_free(temp);
 	return 1;
 }
@@ -510,9 +512,9 @@ void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data
 	} else 
 		log_puts(1, SPL("building "));
 
-	log_put(1, VARIS(item->name), VARISL("("), VARIS(&(item->scripts.filename)), VARISL(") -> "), VARIS(&(item->scripts.stdoutfn)), NULL);
+	log_put(1, VARIS(item->name), VARISL("("), VARIS(item->scripts.filename), VARISL(") -> "), VARIS(item->scripts.stdoutfn), NULL);
 
-	arr[0] = item->scripts.filename.ptr;
+	arr[0] = item->scripts.filename->ptr;
 	arr[1] = NULL;
 	
 	posix_spawn_file_actions_init(&item->fa);
@@ -520,7 +522,7 @@ void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data
 	posix_spawn_file_actions_addclose(&item->fa, 1);
 	posix_spawn_file_actions_addclose(&item->fa, 2);
 	posix_spawn_file_actions_addopen(&item->fa, 0, "/dev/null", O_RDONLY, 0);
-	posix_spawn_file_actions_addopen(&item->fa, 1, item->scripts.stdoutfn.ptr, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+	posix_spawn_file_actions_addopen(&item->fa, 1, item->scripts.stdoutfn->ptr, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 	posix_spawn_file_actions_adddup2(&item->fa, 1, 2);
 	int ret = posix_spawnp(&item->pid, arr[0], &item->fa, NULL, arr, environ);
 	if(ret == -1) {
@@ -688,6 +690,15 @@ int process_queue(pkgstate* state) {
 	return !(state->slots.dl_slots == NUM_DL_THREADS && state->slots.build_slots == NUM_BUILD_THREADS);
 }
 
+void freequeue(sblist* queue) {
+	pkg_exec* pe;
+	sblist_iter(queue, pe) {
+		stringptr_free(pe->scripts.filename);
+		stringptr_free(pe->scripts.stdoutfn);
+	}
+	sblist_free(queue);
+}
+
 int main(int argc, char** argv) {
 	pkgstate state;
 	pkgcommands mode = PKGC_NONE;
@@ -753,8 +764,8 @@ int main(int argc, char** argv) {
 	
 	hashlist_free(state.package_list);
 	
-	sblist_free(state.dl_queue);
-	sblist_free(state.build_queue);
+	freequeue(state.dl_queue);
+	freequeue(state.build_queue);
 	
 	log_timestamp(1);
 	log_putspace(1);
