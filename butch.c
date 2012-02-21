@@ -626,7 +626,7 @@ int process_queue(pkgstate* state) {
 				if(!retval) {
 					ret = verify_download(&state->cfg, listitem);
 					if(ret == 1) { // download too small, retry...
-						log_put(2, VARISL("retrying too short download of "), VARIS(&listitem->name));
+						log_put(2, VARISL("retrying too short download of "), VARIS(&listitem->name), NULL);
 						listitem->pid = -1;
 					} else // do not retry on success, hash mismatch or too big file.
 						listitem->pid = 0; // 0 means finished.
