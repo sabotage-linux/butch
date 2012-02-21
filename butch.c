@@ -403,7 +403,7 @@ int create_script(jobtype ptype, pkgstate* state, pkg* item) {
 			stringptr_fromchar(buf, &tb),
 			SPL(" "),
 			stringptrlist_get(item->data.mirrors, rand() % stringptrlist_getsize(item->data.mirrors)),
-			SPL(" --no-check-certificate"),
+			//SPL(" --no-check-certificate"),
 			NULL);
 		
 	} else if (ptype == JT_BUILD) {
