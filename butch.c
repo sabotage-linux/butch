@@ -302,7 +302,7 @@ int is_in_queue(stringptr* packagename, sblist* queue) {
 void add_queue(stringptr* packagename, sblist* queue) {
 	pkg_exec execdata = {0};
 	execdata.pid = (pid_t) -1;
-	execdata.name = packagename;
+	execdata.name = stringptr_copy(packagename);
 	sblist_add(queue, &execdata);
 }
 
@@ -693,6 +693,7 @@ int process_queue(pkgstate* state) {
 void freequeue(sblist* queue) {
 	pkg_exec* pe;
 	sblist_iter(queue, pe) {
+		stringptr_free(pe->name);
 		stringptr_free(pe->scripts.filename);
 		stringptr_free(pe->scripts.stdoutfn);
 	}
