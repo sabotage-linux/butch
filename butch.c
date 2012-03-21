@@ -76,6 +76,7 @@ typedef struct {
 	stringptr filecache;
 	stringptr arch;
 	stringptr logdir;
+	stringptr builddir;
 	stringptr keep;
 } pkgconfig;
 
@@ -93,6 +94,7 @@ typedef struct {
 	sblist* build_queue;
 	stringptrlist* build_errors;
 	procslots slots;
+	char builddir_buf[1024];
 } pkgstate;
 
 typedef enum {
@@ -110,7 +112,8 @@ void syntax(void) {
 	die(SPL("syntax: pkg command options\ncommands: install, rebuild, prefetch\npass an arbitrary number of package names as options\n"));
 }
 
-void getconfig(pkgconfig* c) {
+void getconfig(pkgstate* state) {
+	pkgconfig* c = &state->cfg;
 	stringptr_fromchar(getenv("A"), &c->arch);
 	stringptr_fromchar(getenv("R"), &c->installroot);
 	stringptr_fromchar(getenv("S"), &c->pkgroot);
@@ -138,6 +141,13 @@ void getconfig(pkgconfig* c) {
 	check_access(pkgroot);
 	check_access(filecache);
 	check_access(keep);
+	
+	snprintf(state->builddir_buf, sizeof(state->builddir_buf), "%s/build", c->pkgroot.ptr);
+	stringptr_fromchar(state->builddir_buf, &c->builddir);
+	if(access(state->builddir_buf, W_OK) == -1 && (errno != ENOENT || mkdir(state->builddir_buf, 0770) == -1)) {
+		check_access(builddir);
+	}
+	
 #undef check_access
 }
 
@@ -265,7 +275,6 @@ void get_installed_packages(pkgconfig* cfg, stringptrlist* packages) {
 	err:
 	log_perror("failed to open installed.dat!");
 }
-
 
 int is_installed(stringptrlist* packages, stringptr* packagename) {
 	return stringptrlist_contains(packages, packagename);
@@ -441,7 +450,7 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 	} else
 		abort();
 	
-	item->scripts.filename = stringptr_format("%s/%s_%s.sh", state->cfg.pkgroot.ptr, prefix, item->name->ptr);
+	item->scripts.filename = stringptr_format("%s/%s_%s.sh", state->cfg.builddir.ptr, prefix, item->name->ptr);
 	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr); 
 	
 	config = make_config(&state->cfg);
@@ -475,7 +484,7 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 			temp = stringptr_concat(SPL("#!/bin/sh\n"), 
 				config,
 				set_cc,
-				SPL("cd $S\n"), 
+				SPL("cd $S/build\n"), 
 				SPL("[ -e "),
 				data->tardir,
 				SPL(" ] && rm -rf "),
@@ -715,7 +724,7 @@ int main(int argc, char** argv) {
 	
 	srand(time(NULL));
 	
-	getconfig(&state.cfg);
+	getconfig(&state);
 	state.installed_packages = stringptrlist_new(64);
 	get_installed_packages(&state.cfg, state.installed_packages);
 	
