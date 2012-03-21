@@ -491,7 +491,7 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 				data->tardir,
 				SPL("\ntar xf $C/"), 
 				stringptr_fromchar(buf, &tb),
-				SPL(" || (echo tarball error; exit 1)\ncd $S/"),
+				SPL(" || (echo tarball error; exit 1)\ncd $S/build/"),
 				data->tardir,
 				SPL("\n"),
 				buildscr,
