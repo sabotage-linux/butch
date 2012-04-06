@@ -33,6 +33,7 @@
 #include "../lib/include/fileparser.h"
 #include "../lib/include/iniparser.h"
 #include "../lib/include/filelib.h"
+#include "../lib/include/macros.h"
 
 #include "sha2/sha2.h"
 #include "../lib/include/hashlist.h"
@@ -41,10 +42,11 @@
 #define NUM_BUILD_THREADS 2
 
 typedef enum {
-	PKGC_NONE,
+	PKGC_NONE = 0,
 	PKGC_INSTALL,
 	PKGC_REBUILD,
-	PKGC_PREFETCH
+	PKGC_PREFETCH,
+	PKGC_REBUILD_ALL,
 } pkgcommands;
 
 typedef struct {
@@ -109,7 +111,19 @@ void die(stringptr* message) {
 }
 
 void syntax(void) {
-	die(SPL("syntax: pkg command options\ncommands: install, rebuild, prefetch\npass an arbitrary number of package names as options\n"));
+	die(SPL("syntax: butch command options\n\n"
+	"commands: install, rebuild, rebuildall, prefetch\n\n"
+	"pass an arbitrary number of package names as options\n\n"
+	"\tinstall: installs one or more packages when they're not yet installed\n"
+	"\t\t(list of installed packages is kept in pkg/installed.dat)\n"
+	"\trebuild: installs one or more packages even when they're already\n"
+	"\t\tinstalled\n"
+	"\trebuildall: installs one or more packages even when they're already\n"
+	"\t\tinstalled, including all dependencies\n"
+	"\tprefetch: only download the given package and all of its dependencies,\n"
+	"\t\tunless they're not already in $C\n"
+	"\n"
+	));
 }
 
 void getconfig(pkgstate* state) {
@@ -355,7 +369,7 @@ void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, int forc
 	}
 	
 	for(i = 0; i < stringptrlist_getsize(pkg->deps); i++)
-		queue_package(state, stringptrlist_get(pkg->deps, i), jt, 0); // omg recursion
+		queue_package(state, stringptrlist_get(pkg->deps, i), jt, force == -1 ? 1 : 0); // omg recursion
 	
 	if(
 		// if sizeof mirrors is 0, it is a meta package
@@ -708,14 +722,19 @@ void freequeue(sblist* queue) {
 int main(int argc, char** argv) {
 	pkgstate state;
 	pkgcommands mode = PKGC_NONE;
+	int i;
+	
+	const char* opt_strings[] = {
+		[PKGC_INSTALL] = "install", [PKGC_REBUILD] = "rebuild",
+		[PKGC_REBUILD_ALL] = "rebuildall", [PKGC_PREFETCH] = "prefetch",
+	};
 	
 	if(argc < 3) syntax();
-	if(!strcmp(argv[1], "install"))
-		mode = PKGC_INSTALL;
-	else if(!strcmp(argv[1], "rebuild"))
-		mode = PKGC_REBUILD;
-	else if(!strcmp(argv[1], "prefetch"))
-		mode = PKGC_PREFETCH;
+	
+	for(i = PKGC_NONE + 1; i < ARRAY_SIZE(opt_strings); i++)
+		if(!strcmp(argv[1], opt_strings[i]))
+			mode = (pkgcommands) i;
+
 	if(mode == PKGC_NONE) syntax();
 	
 	srand(time(NULL));
@@ -729,25 +748,12 @@ int main(int argc, char** argv) {
 	state.dl_queue = sblist_new(sizeof(pkg_exec), 64);
 	state.build_errors = stringptrlist_new(4);
 	
-	int i;
+	int force[] = { [PKGC_REBUILD] = 1,  [PKGC_REBUILD_ALL] = -1, [PKGC_INSTALL] = 0 };
 	stringptr curr;
 	for(i=2; i < argc; i++) {
-		switch(mode) {
-			case PKGC_PREFETCH:
-				queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_DOWNLOAD, 0);
-				break;
-			case PKGC_INSTALL:
-				queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_DOWNLOAD, 0);
-				queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_BUILD, 0);
-				break;
-			case PKGC_REBUILD:
-				queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_DOWNLOAD, 0);
-				queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_BUILD, 1);
-				break;
-				
-			default:
-				break;
-		}
+		queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_DOWNLOAD, 0);
+		if(mode != PKGC_PREFETCH) 
+			queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_BUILD, force[mode]);
 	}
 	print_info(&state);
 	prepare_queue(&state);
