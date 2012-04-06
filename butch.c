@@ -485,11 +485,11 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 				config,
 				SPL("export butch_package_name="), item->name, SPL("\n"),
 				set_cc,
-				SPL("cd $S/build\n"), 
-				SPL("[ -e "), data->tardir, SPL(" ] && rm -rf "), data->tardir, SPL("\n"),
-				SPL("\ntar xf $C/"), stringptr_fromchar(buf, &tb), 
-				SPL(" || (echo tarball error; exit 1)\n"),
-				SPL("cd $S/build/"), data->tardir, SPL("\n"),
+				SPL("cd \"$S/build\"\n"), 
+				SPL("[ -e \""), data->tardir, SPL("\" ] && rm -rf \""), data->tardir, SPL("\"\n"),
+				SPL("\ntar xf \"$C/"), stringptr_fromchar(buf, &tb), 
+				SPL("\" || (echo tarball error; exit 1)\n"),
+				SPL("cd \"$S/build/"), data->tardir, SPL("\"\n"),
 				buildscr,
 				NULL);
 		}
