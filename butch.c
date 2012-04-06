@@ -369,7 +369,7 @@ void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, int forc
 	}
 	
 	for(i = 0; i < stringptrlist_getsize(pkg->deps); i++)
-		queue_package(state, stringptrlist_get(pkg->deps, i), jt, force == -1 ? 1 : 0); // omg recursion
+		queue_package(state, stringptrlist_get(pkg->deps, i), jt, force == -1 ? -1 : 0); // omg recursion
 	
 	if(
 		// if sizeof mirrors is 0, it is a meta package
