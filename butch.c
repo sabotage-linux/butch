@@ -483,6 +483,7 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 			
 			temp = stringptr_concat(SPL("#!/bin/sh\n"), 
 				config,
+				SPL("butch_package_name="), item->name, SPL("\n"),
 				set_cc,
 				SPL("cd $S/build\n"), 
 				SPL("[ -e "),
