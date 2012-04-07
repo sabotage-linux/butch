@@ -378,6 +378,9 @@ void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, int forc
 	) {
 		add_queue(packagename, queue);
 	}
+	// in case a rebuild is forced of an installed package, but the tarball is missing, redownload
+	if(force && jt == JT_BUILD && stringptrlist_getsize(pkg->mirrors) && !has_tarball(&state->cfg, pkg))
+		queue_package(state, packagename, JT_DOWNLOAD, 1);
 	
 }
 
