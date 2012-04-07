@@ -454,8 +454,20 @@ stringptr* make_config(pkgconfig* cfg) {
 }
 
 int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data) {
-	stringptr* temp, *config, tb;
-	stringptr* set_cc = SPL("if [ -z \"$CC\" ] ; then\n\tCC=cc\nfi\n");
+	stringptr *temp, *temp2, *config, tb;
+	stringptr *set_cc = SPL("[ -z \"$CC\" ] && CC=cc\n");
+	const stringptr* default_buildscript = SPL(
+		"#!/bin/sh\n"
+		"%BUTCH_CONFIG\n"
+		"export butch_package_name=%BUTCH_PACKAGE_NAME\n"
+		"butch_install_dir=\"$R\"\n"
+		"[ -z \"$CC\" ]  && CC=cc\n"
+		"cd \"$S/build\"\n" 
+		"[ -e \"%BUTCH_TARDIR\" ] && rm -rf \"%BUTCH_TARDIR\"\n"
+		"tar xf \"$C/%BUTCH_TARBALL\" || (echo tarball error; exit 1)\n"
+		"cd \"$S/build/%BUTCH_TARDIR\"\n"
+		"%BUTCH_BUILDSCRIPT\n"
+	);
 	
 	char* prefix;
 	char buf[256];
@@ -494,21 +506,30 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 				buildscr,
 				NULL);
 		} else {
+			char *custom_build_template = getenv("BUTCH_BUILD_TEMPLATE");
 			if(data->tardir->size && data->tardir->ptr[0] == '/') 
 				// prevent erroneus scripts from trash our fs
 				abort();
-			
-			temp = stringptr_concat(SPL("#!/bin/sh\n"), 
-				config,
-				SPL("export butch_package_name="), item->name, SPL("\n"),
-				set_cc,
-				SPL("cd \"$S/build\"\n"), 
-				SPL("[ -e \""), data->tardir, SPL("\" ] && rm -rf \""), data->tardir, SPL("\"\n"),
-				SPL("\ntar xf \"$C/"), stringptr_fromchar(buf, &tb), 
-				SPL("\" || (echo tarball error; exit 1)\n"),
-				SPL("cd \"$S/build/"), data->tardir, SPL("\"\n"),
-				buildscr,
-				NULL);
+			if(custom_build_template) {
+				temp = stringptr_fromfile(custom_build_template);
+				if(!temp) {
+					log_puts(2, SPL("error reading custom_build_template, using default one\n"));
+					goto def_buildscript;
+				}
+			} else {
+				def_buildscript:
+				temp = stringptr_copy((stringptr*) default_buildscript);
+			}
+			temp2 = stringptr_replace(temp, SPL("%BUTCH_CONFIG"), config);
+			stringptr_free(temp); temp = temp2;
+			temp2 = stringptr_replace(temp, SPL("%BUTCH_PACKAGE_NAME"), item->name);
+			stringptr_free(temp); temp = temp2;
+			temp2 = stringptr_replace(temp, SPL("%BUTCH_TARDIR"), data->tardir);
+			stringptr_free(temp); temp = temp2;
+			temp2 = stringptr_replace(temp, SPL("%BUTCH_TARBALL"), stringptr_fromchar(buf, &tb));
+			stringptr_free(temp); temp = temp2;
+			temp2 = stringptr_replace(temp, SPL("%BUTCH_BUILDSCRIPT"), buildscr);
+			stringptr_free(temp); temp = temp2;
 		}
 		
 		stringptr_free(buildscr);
@@ -734,7 +755,7 @@ int main(int argc, char** argv) {
 	
 	if(argc < 3) syntax();
 	
-	for(i = PKGC_NONE + 1; i < ARRAY_SIZE(opt_strings); i++)
+	for(i = PKGC_NONE + 1; (unsigned) i < ARRAY_SIZE(opt_strings); i++)
 		if(!strcmp(argv[1], opt_strings[i]))
 			mode = (pkgcommands) i;
 

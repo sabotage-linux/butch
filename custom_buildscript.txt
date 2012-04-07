@@ -1,0 +1,12 @@
+#!/bin/sh
+%BUTCH_CONFIG
+export butch_package_name=%BUTCH_PACKAGE_NAME
+butch_install_dir="/opt/$butch_package_name"
+mkdir -p "$butch_install_dir"
+[ -z "$CC" ]  && CC=cc
+cd "$S/build" 
+[ -e %BUTCH_TARDIR ] && rm -rf "%BUTCH_TARDIR"
+tar xf "$C/%BUTCH_TARBALL" || (echo tarball error; exit 1)
+cd "$S/build/%BUTCH_TARDIR"
+%BUTCH_BUILDSCRIPT
+
