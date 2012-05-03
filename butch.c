@@ -555,7 +555,7 @@ void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data
 	} else 
 		log_puts(1, SPL("building "));
 
-	log_put(1, VARIS(item->name), VARISL("("), VARIS(item->scripts.filename), VARISL(") -> "), VARIS(item->scripts.stdoutfn), NULL);
+	log_put(1, VARIS(item->name), VARISL(" ("), VARIS(item->scripts.filename), VARISL(") -> "), VARIS(item->scripts.stdoutfn), NULL);
 
 	arr[0] = item->scripts.filename->ptr;
 	arr[1] = NULL;
