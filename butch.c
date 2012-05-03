@@ -461,83 +461,82 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 		"%BUTCH_CONFIG\n"
 		"export butch_package_name=%BUTCH_PACKAGE_NAME\n"
 		"butch_install_dir=\"$R\"\n"
+		"butch_cache_dir=\"$C\"\n"
 		"[ -z \"$CC\" ]  && CC=cc\n"
+		"if %BUTCH_HAVE_TARBALL ; then\n"
 		"cd \"$S/build\"\n" 
 		"[ -e \"%BUTCH_TARDIR\" ] && rm -rf \"%BUTCH_TARDIR\"\n"
-		"tar xf \"$C/%BUTCH_TARBALL\" || (echo tarball error; exit 1)\n"
+		"tar xf \"$butch_cache_dir/%BUTCH_TARBALL\" || (echo tarball error; exit 1)\n"
 		"cd \"$S/build/%BUTCH_TARDIR\"\n"
+		"fi\n"
 		"%BUTCH_BUILDSCRIPT\n"
 	);
 	
-	char* prefix;
+	const stringptr* default_downloadscript = SPL(
+		"#!/bin/sh\n"
+		"%BUTCH_CONFIG\n"
+		"export butch_package_name=%BUTCH_PACKAGE_NAME\n"
+		"butch_cache_dir=\"$C\"\n"
+		"wget -O \"$butch_cache_dir/%BUTCH_TARBALL\" '%BUTCH_MIRROR_URL'\n"
+	);
+	
+	char *prefix = (ptype == JT_BUILD ? "build" : "dl");
+	char *custom_template = 
+		getenv(ptype == JT_BUILD ? "BUTCH_BUILD_TEMPLATE" : "BUTCH_DOWNLOAD_TEMPLATE");
+	const stringptr* default_script = (ptype == JT_BUILD ? default_buildscript : default_downloadscript);
+	
 	char buf[256];
 	int hastarball;
-	if(ptype == JT_DOWNLOAD) {
-		prefix = "dl";
-	} else if (ptype == JT_BUILD) {
-		prefix = "build";
-	} else
-		abort();
-	
+
 	item->scripts.filename = stringptr_format("%s/%s_%s.sh", state->cfg.builddir.ptr, prefix, item->name->ptr);
 	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr); 
 	
 	config = make_config(&state->cfg);
 	hastarball = get_tarball_filename(data, buf, sizeof(buf));
 	
-	if(ptype == JT_DOWNLOAD) {
-		if(!hastarball) abort(); //bug
-		temp = stringptr_concat(SPL("#!/bin/sh\n"),
-			config,
-			SPL("wget -O $C/"),
-			stringptr_fromchar(buf, &tb),
-			SPL(" "),
-			stringptrlist_get(data->mirrors, rand() % stringptrlist_getsize(data->mirrors)),
-			//SPL(" --no-check-certificate"),
-			NULL);
-		
-	} else if (ptype == JT_BUILD) {
-		stringptr* buildscr = stringptrlist_tostring(data->buildscript);
-		
-		if(!hastarball) {
-			temp = stringptr_concat(SPL("#!/bin/sh\n"), 
-				config,
-				set_cc,
-				buildscr,
-				NULL);
-		} else {
-			char *custom_build_template = getenv("BUTCH_BUILD_TEMPLATE");
-			if(data->tardir->size && data->tardir->ptr[0] == '/') 
-				// prevent erroneus scripts from trash our fs
-				abort();
-			if(custom_build_template) {
-				temp = stringptr_fromfile(custom_build_template);
-				if(!temp) {
-					log_puts(2, SPL("error reading custom_build_template, using default one\n"));
-					goto def_buildscript;
-				}
-			} else {
-				def_buildscript:
-				temp = stringptr_copy((stringptr*) default_buildscript);
-			}
-			temp2 = stringptr_replace(temp, SPL("%BUTCH_CONFIG"), config);
-			stringptr_free(temp); temp = temp2;
-			temp2 = stringptr_replace(temp, SPL("%BUTCH_PACKAGE_NAME"), item->name);
-			stringptr_free(temp); temp = temp2;
-			temp2 = stringptr_replace(temp, SPL("%BUTCH_TARDIR"), data->tardir);
-			stringptr_free(temp); temp = temp2;
-			temp2 = stringptr_replace(temp, SPL("%BUTCH_TARBALL"), stringptr_fromchar(buf, &tb));
-			stringptr_free(temp); temp = temp2;
-			temp2 = stringptr_replace(temp, SPL("%BUTCH_BUILDSCRIPT"), buildscr);
-			stringptr_free(temp); temp = temp2;
+	stringptr* buildscr = (ptype == JT_BUILD ? stringptrlist_tostring(data->buildscript) : SPL(""));
+	
+	if(     // prevent erroneus scripts from trash our fs
+		(ptype == JT_BUILD && hastarball && data->tardir->size && data->tardir->ptr[0] == '/') ||
+		// bug
+		(ptype == JT_DOWNLOAD && !hastarball)
+	)
+		abort();
+
+	if(custom_template) {
+		temp = stringptr_fromfile(custom_template);
+		if(!temp) {
+			log_puts(2, SPL("error reading custom_template, using default one\n"));
+			goto def_script;
 		}
-		
+	} else {
+		def_script:
+		temp = stringptr_copy((stringptr*) default_script);
+	}
+
+	temp2 = stringptr_replace(temp, SPL("%BUTCH_CONFIG"), config);
+	stringptr_free(temp); temp = temp2;
+	temp2 = stringptr_replace(temp, SPL("%BUTCH_PACKAGE_NAME"), item->name);
+	stringptr_free(temp); temp = temp2;
+	temp2 = stringptr_replace(temp, SPL("%BUTCH_BUILDSCRIPT"), buildscr);
+	stringptr_free(temp); temp = temp2;
+	
+	temp2 = stringptr_replace(temp, SPL("%BUTCH_HAVE_TARBALL"), hastarball ? SPL("true") : SPL("false"));
+	stringptr_free(temp); temp = temp2;
+	temp2 = stringptr_replace(temp, SPL("%BUTCH_TARDIR"), hastarball ? data->tardir : SPL("$dummy"));
+	stringptr_free(temp); temp = temp2;
+	temp2 = stringptr_replace(temp, SPL("%BUTCH_TARBALL"), hastarball ? stringptr_fromchar(buf, &tb) : SPL("$dummy"));
+	stringptr_free(temp); temp = temp2;
+	
+	if(ptype == JT_DOWNLOAD) {
+		temp2 = stringptr_replace(temp, SPL("%BUTCH_MIRROR_URL"), 
+						stringptrlist_get(data->mirrors, rand() % stringptrlist_getsize(data->mirrors)));
+		stringptr_free(temp); temp = temp2;
+	} else 
 		stringptr_free(buildscr);
 		
-	} else abort();
-
 	stringptr_tofile(item->scripts.filename->ptr, temp);
-	if(chmod(item->scripts.filename->ptr, 0777) == -1) die(SPL("error setting permission"));
+	if(chmod(item->scripts.filename->ptr, 0775) == -1) die(SPL("error setting permission"));
 	stringptr_free(config);
 	stringptr_free(temp);
 	return 1;
