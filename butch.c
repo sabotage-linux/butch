@@ -601,7 +601,7 @@ void fill_slots(jobtype ptype, pkgstate* state) {
 		if(item->pid == -1) {
 			pkg = packagelist_get(state->package_list, item->name, stringptr_hash(item->name));
 			if(ptype == JT_DOWNLOAD || has_all_deps(state, pkg)) {
-				if(ptype == JT_BUILD && !pkg->verified) {
+				if(ptype == JT_BUILD && !pkg->verified && stringptrlist_getsize(pkg->mirrors)) {
 					if (! (pkg->verified = !(verify_tarball(&state->cfg, pkg)))) {
 						log_put(2, VARISL("WARNING: "), VARIS(item->name), VARISL(" failed to verify! please delete its tarball and retry downloading it."), NULL);
 						continue;
