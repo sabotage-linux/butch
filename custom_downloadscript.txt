@@ -1,0 +1,5 @@
+#!/bin/sh
+%BUTCH_CONFIG
+export butch_package_name=%BUTCH_PACKAGE_NAME
+butch_cache_dir="$C"
+wget -O "$butch_cache_dir/%BUTCH_TARBALL" '%BUTCH_MIRROR_URL'
