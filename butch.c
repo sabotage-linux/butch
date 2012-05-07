@@ -323,7 +323,8 @@ static int is_in_queue(stringptr* packagename, sblist* queue) {
 }
 
 static void add_queue(stringptr* packagename, sblist* queue) {
-	pkg_exec execdata = {0};
+	pkg_exec execdata;
+	memset(&execdata, 0, sizeof(execdata));
 	execdata.pid = (pid_t) -1;
 	execdata.name = stringptr_copy(packagename);
 	sblist_add(queue, &execdata);
@@ -342,7 +343,8 @@ static pkgdata* packagelist_get(hashlist* list, stringptr* name, uint32_t hash) 
 }
 
 pkgdata* packagelist_add(hashlist* list, stringptr* name, uint32_t hash) {
-	pkgdata pkg_empty = {0};
+	pkgdata pkg_empty;
+	memset(&pkg_empty, 0, sizeof(pkg_empty));
 	pkg_empty.name = stringptr_copy(name);
 	hashlist_add(list, hash, &pkg_empty);
 	return packagelist_get(list, name, hash);
@@ -461,7 +463,6 @@ static stringptr* make_config(pkgconfig* cfg) {
 
 static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data) {
 	stringptr *temp, *temp2, *config, tb;
-	stringptr *set_cc = SPL("[ -z \"$CC\" ] && CC=cc\n");
 	const stringptr* default_buildscript = SPL(
 		"#!/bin/sh\n"
 		"%BUTCH_CONFIG\n"
