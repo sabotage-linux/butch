@@ -105,12 +105,12 @@ typedef enum {
 } jobtype;
 
 __attribute__((noreturn))
-void die(stringptr* message) {
+static void die(stringptr* message) {
 	log_puts(2, message);
 	exit(1);
 }
 
-void syntax(void) {
+static void syntax(void) {
 	die(SPL("syntax: butch command options\n\n"
 	"commands: install, rebuild, rebuildall, prefetch\n\n"
 	"pass an arbitrary number of package names as options\n\n"
@@ -126,7 +126,7 @@ void syntax(void) {
 	));
 }
 
-void getconfig(pkgstate* state) {
+static void getconfig(pkgstate* state) {
 	pkgconfig* c = &state->cfg;
 	stringptr_fromchar(getenv("A"), &c->arch);
 	stringptr_fromchar(getenv("R"), &c->installroot);
@@ -156,7 +156,7 @@ void getconfig(pkgstate* state) {
 	check_access(filecache);
 	check_access(keep);
 	
-	snprintf(state->builddir_buf, sizeof(state->builddir_buf), "%s/build", c->pkgroot.ptr);
+	ulz_snprintf(state->builddir_buf, sizeof(state->builddir_buf), "%s/build", c->pkgroot.ptr);
 	stringptr_fromchar(state->builddir_buf, &c->builddir);
 	if(access(state->builddir_buf, W_OK) == -1 && (errno != ENOENT || mkdir(state->builddir_buf, 0770) == -1)) {
 		check_access(builddir);
@@ -165,19 +165,19 @@ void getconfig(pkgstate* state) {
 #undef check_access
 }
 
-int get_tarball_filename(pkgdata* package, char* buf, size_t bufsize) {
+static int get_tarball_filename(pkgdata* package, char* buf, size_t bufsize) {
 	if(stringptrlist_getsize(package->mirrors) == 0) return 0;
 	ulz_snprintf(buf, bufsize, "%s", getfilename(stringptrlist_get(package->mirrors, 0)));
 	return 1;
 }
 
-int get_tarball_filename_with_path(pkgconfig* cfg, pkgdata* package, char* buf, size_t bufsize) {
+static int get_tarball_filename_with_path(pkgconfig* cfg, pkgdata* package, char* buf, size_t bufsize) {
 	if(stringptrlist_getsize(package->mirrors) == 0) return 0;
 	ulz_snprintf(buf, bufsize, "%s/%s", cfg->filecache.ptr, getfilename(stringptrlist_get(package->mirrors, 0)));
 	return 1;
 }
 
-void strip_fileext(stringptr* s) {
+static void strip_fileext(stringptr* s) {
 	char* dot = stringptr_rchr(s, '.');
 	*dot = 0;
 	s->size = dot - s->ptr;
@@ -188,7 +188,7 @@ void strip_fileext(stringptr* s) {
 }
 
 // contract: out is already zeroed and contains only name
-void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata* out) {
+static void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata* out) {
 	ini_section sec;
 	char buf[256];
 	ulz_snprintf(buf, sizeof(buf), "%s/pkg/%s", cfg->pkgroot.ptr, packagename->ptr);
@@ -274,7 +274,7 @@ void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata* out) 
 	die(SPL("package not existing"));
 }
 
-void get_installed_packages(pkgconfig* cfg, stringptrlist* packages) {
+static void get_installed_packages(pkgconfig* cfg, stringptrlist* packages) {
 	fileparser f;
 	char buf[256];
 	stringptr line;
@@ -290,11 +290,11 @@ void get_installed_packages(pkgconfig* cfg, stringptrlist* packages) {
 	log_perror("failed to open installed.dat!");
 }
 
-int is_installed(stringptrlist* packages, stringptr* packagename) {
+static int is_installed(stringptrlist* packages, stringptr* packagename) {
 	return stringptrlist_contains(packages, packagename);
 }
 
-int has_tarball(pkgconfig* cfg, pkgdata* package) {
+static int has_tarball(pkgconfig* cfg, pkgdata* package) {
 	char buf[256];
 	if(!get_tarball_filename_with_path(cfg, package, buf, sizeof(buf))) goto err;
 	return (access(buf, R_OK) != -1);
@@ -302,7 +302,7 @@ int has_tarball(pkgconfig* cfg, pkgdata* package) {
 	return 0;
 }
 
-void free_package_data(pkgdata* data) {
+static void free_package_data(pkgdata* data) {
 	stringptrlist_freeall(data->buildscript);
 	stringptrlist_freeall(data->deps);
 	stringptrlist_freeall(data->mirrors);
@@ -311,25 +311,23 @@ void free_package_data(pkgdata* data) {
 	stringptr_free(data->sha512);
 }
 
-int is_in_queue(stringptr* packagename, sblist* queue) {
-	size_t i;
-	pkg_exec* listitem;
-	for(i = 0; i < sblist_getsize(queue); i++) {
-		listitem = sblist_get(queue, i);
-		if(EQ(listitem->name, packagename))
+static int is_in_queue(stringptr* packagename, sblist* queue) {
+	pkg_exec* item;
+	sblist_iter(queue, item) {
+		if(EQ(item->name, packagename))
 			return 1;
 	}
 	return 0;
 }
 
-void add_queue(stringptr* packagename, sblist* queue) {
+static void add_queue(stringptr* packagename, sblist* queue) {
 	pkg_exec execdata = {0};
 	execdata.pid = (pid_t) -1;
 	execdata.name = stringptr_copy(packagename);
 	sblist_add(queue, &execdata);
 }
 
-pkgdata* packagelist_get(hashlist* list, stringptr* name, uint32_t hash) {
+static pkgdata* packagelist_get(hashlist* list, stringptr* name, uint32_t hash) {
 	sblist* bucket = hashlist_get(list, hash);
 	pkgdata* result;
 	if(bucket) {
@@ -349,7 +347,7 @@ pkgdata* packagelist_add(hashlist* list, stringptr* name, uint32_t hash) {
 }
 
 
-void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, int force) {
+static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, int force) {
 	if(!packagename->size) return;
 	sblist* queue = (jt == JT_DOWNLOAD) ? state->dl_queue : state->build_queue;
 	if(is_in_queue(packagename, queue)) return;
@@ -386,7 +384,7 @@ void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, int forc
 
 //return 0 on success.
 //checks if filesize and/or sha512 matches, if used.
-int verify_tarball(pkgconfig* cfg, pkgdata* package) {
+static int verify_tarball(pkgconfig* cfg, pkgdata* package) {
 	char buf[4096];
 	char* error;
 	SHA512_CTX ctx;
@@ -432,7 +430,7 @@ int verify_tarball(pkgconfig* cfg, pkgdata* package) {
 	return 0;
 }
 
-stringptr* make_config(pkgconfig* cfg) {
+static stringptr* make_config(pkgconfig* cfg) {
 	stringptr* result = stringptr_concat(
 		SPL("export A="),
 		&cfg->arch,
@@ -453,7 +451,7 @@ stringptr* make_config(pkgconfig* cfg) {
 	return result;
 }
 
-int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data) {
+static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data) {
 	stringptr *temp, *temp2, *config, tb;
 	stringptr *set_cc = SPL("[ -z \"$CC\" ] && CC=cc\n");
 	const stringptr* default_buildscript = SPL(
@@ -544,7 +542,7 @@ int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data)
 
 extern char** environ;
 
-void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data) {
+static void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data) {
 	char* arr[2];
 	create_script(ptype, state, item, data);
 	log_timestamp(1);
@@ -576,7 +574,7 @@ void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data
 // checks if all dependencies are installed
 // then checks if the tarball is downloaded
 // then checks if its either a metapackage or doesnt require a tarball.
-int has_all_deps(pkgstate* state, pkgdata* item) {
+static int has_all_deps(pkgstate* state, pkgdata* item) {
 	size_t i;
 	pkg_exec* dlitem;
 	for(i = 0; i < stringptrlist_getsize(item->deps); i++)
@@ -590,7 +588,7 @@ int has_all_deps(pkgstate* state, pkgdata* item) {
 	return (!stringptrlist_getsize(item->mirrors) || has_tarball(&state->cfg, item));
 }
 
-void fill_slots(jobtype ptype, pkgstate* state) {
+static void fill_slots(jobtype ptype, pkgstate* state) {
 	size_t i;
 	pkg_exec* item;
 	pkgdata* pkg;
@@ -614,14 +612,14 @@ void fill_slots(jobtype ptype, pkgstate* state) {
 	}
 }
 
-void prepare_queue(pkgstate* state) {
+static void prepare_queue(pkgstate* state) {
 	state->slots.build_slots = NUM_BUILD_THREADS;
 	state->slots.dl_slots = NUM_DL_THREADS;
 	fill_slots(JT_DOWNLOAD, state);
 	fill_slots(JT_BUILD, state);
 }
 
-void print_queue(pkgstate* state, jobtype jt) {
+static void print_queue(pkgstate* state, jobtype jt) {
 	sblist* queue = (jt == JT_DOWNLOAD) ? state->dl_queue : state->build_queue;
 	char *queuename = (jt == JT_DOWNLOAD) ? "download" : "build";
 	pkg_exec* listitem;
@@ -633,12 +631,12 @@ void print_queue(pkgstate* state, jobtype jt) {
 	}
 }
 
-void print_info(pkgstate* state) {
+static void print_info(pkgstate* state) {
 	print_queue(state, JT_DOWNLOAD);
 	print_queue(state, JT_BUILD);
 }
 
-void mark_finished(pkgstate* state, stringptr* name) {
+static void mark_finished(pkgstate* state, stringptr* name) {
 	char buf[256];
 	if(!stringptrlist_contains(state->installed_packages, name)) {
 		ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
@@ -651,7 +649,7 @@ void mark_finished(pkgstate* state, stringptr* name) {
 	}
 }
 
-void warn_errors(pkgstate* state) {
+static void warn_errors(pkgstate* state) {
 	size_t i;
 	stringptr* candidate;
 	for(i = 0; i < stringptrlist_getsize(state->build_errors); i++) {
@@ -660,7 +658,7 @@ void warn_errors(pkgstate* state) {
 	}
 }
 
-int process_queue(pkgstate* state) {
+static int process_queue(pkgstate* state) {
 	size_t i;
 	int retval, ret;
 	pkg_exec* listitem;
@@ -732,7 +730,7 @@ int process_queue(pkgstate* state) {
 	return !(state->slots.dl_slots == NUM_DL_THREADS && state->slots.build_slots == NUM_BUILD_THREADS);
 }
 
-void freequeue(sblist* queue) {
+static void freequeue(sblist* queue) {
 	pkg_exec* pe;
 	sblist_iter(queue, pe) {
 		stringptr_free(pe->name);
