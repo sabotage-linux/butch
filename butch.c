@@ -97,8 +97,7 @@ typedef struct {
 	stringptrlist* installed_packages;
 	hashlist* package_list;
 	sblist* queue[JT_BUILD + 1];
-	stringptrlist* dl_checked;
-	stringptrlist* build_checked;
+	stringptrlist* checked[JT_BUILD + 1];
 	stringptrlist* build_errors;
 	procslots slots;
 	char builddir_buf[1024];
@@ -357,7 +356,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	}
 	if(!packagename->size) goto end;
 	sblist* queue = state->queue[jt];
-	stringptrlist* checklist = (jt == JT_DOWNLOAD) ? state->dl_checked : state->build_checked;
+	stringptrlist* checklist = state->checked[jt];
 	
 	// check if we already processed this entry.
 	if(stringptrlist_contains(checklist, packagename)) {
@@ -792,8 +791,8 @@ int main(int argc, char** argv) {
 	state.queue[JT_DOWNLOAD] = sblist_new(sizeof(pkg_exec), 64);
 	state.queue[JT_BUILD] = sblist_new(sizeof(pkg_exec), 64);
 	state.build_errors = stringptrlist_new(4);
-	state.dl_checked = stringptrlist_new(64);
-	state.build_checked = stringptrlist_new(64);
+	state.checked[JT_DOWNLOAD] = stringptrlist_new(64);
+	state.checked[JT_BUILD] = stringptrlist_new(64);
 	
 	int force[] = { [PKGC_REBUILD] = 1,  [PKGC_REBUILD_ALL] = -1, [PKGC_INSTALL] = 0 };
 	stringptr curr;
@@ -812,8 +811,8 @@ int main(int argc, char** argv) {
 	// clean up ...
 	
 	stringptrlist_freeall(state.build_errors);
-	stringptrlist_freeall(state.build_checked);
-	stringptrlist_freeall(state.dl_checked);
+	stringptrlist_freeall(state.checked[JT_DOWNLOAD]);
+	stringptrlist_freeall(state.checked[JT_BUILD]);
 	stringptrlist_freeall(state.installed_packages);
 	
 	hashlist_iterator hit;
