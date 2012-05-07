@@ -94,6 +94,8 @@ typedef struct {
 	hashlist* package_list;
 	sblist* dl_queue;
 	sblist* build_queue;
+	stringptrlist* dl_checked;
+	stringptrlist* build_checked;
 	stringptrlist* build_errors;
 	procslots slots;
 	char builddir_buf[1024];
@@ -350,6 +352,12 @@ pkgdata* packagelist_add(hashlist* list, stringptr* name, uint32_t hash) {
 static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, int force) {
 	if(!packagename->size) return;
 	sblist* queue = (jt == JT_DOWNLOAD) ? state->dl_queue : state->build_queue;
+	stringptrlist* checklist = (jt == JT_DOWNLOAD) ? state->dl_checked : state->build_checked;
+	
+	// check if we already processed this entry.
+	if(stringptrlist_contains(checklist, packagename)) return;
+	stringptrlist_add(checklist, stringptr_strdup(packagename), packagename->size);
+	
 	if(is_in_queue(packagename, queue)) return;
 	
 	if(!force && is_installed(state->installed_packages, packagename)) {
@@ -768,6 +776,8 @@ int main(int argc, char** argv) {
 	state.build_queue = sblist_new(sizeof(pkg_exec), 64);
 	state.dl_queue = sblist_new(sizeof(pkg_exec), 64);
 	state.build_errors = stringptrlist_new(4);
+	state.dl_checked = stringptrlist_new(64);
+	state.build_checked = stringptrlist_new(64);
 	
 	int force[] = { [PKGC_REBUILD] = 1,  [PKGC_REBUILD_ALL] = -1, [PKGC_INSTALL] = 0 };
 	stringptr curr;
@@ -786,6 +796,8 @@ int main(int argc, char** argv) {
 	// clean up ...
 	
 	stringptrlist_freeall(state.build_errors);
+	stringptrlist_freeall(state.build_checked);
+	stringptrlist_freeall(state.dl_checked);
 	stringptrlist_freeall(state.installed_packages);
 	
 	hashlist_iterator hit;
