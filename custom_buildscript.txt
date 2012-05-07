@@ -1,12 +1,137 @@
 #!/bin/sh
+
+# ALL VARIABLES STARTING WITH % WILL BE REPLACED BY BUTCH
+# WITH VALUES TAKEN FROM THE PKG FILE.
+
+# BUTCH_CONFIG will get replaced by the environment variables
+# that butch uses (R,S,C...).
 %BUTCH_CONFIG
-export butch_package_name=%BUTCH_PACKAGE_NAME
-butch_install_dir="/opt/$butch_package_name"
+
+# some settings to influence this script...
+# note that you could set similar stuff using env variables.
+butch_do_config_cache=true
+butch_do_cleanup_builddir=true
+butch_do_custom_destdir=true
+# the options below all require a custom destdir to be set.
+butch_do_cleanup_custom_destdir=true
+butch_do_relocate=true
+butch_do_filelists=true
+butch_do_create_tarball=false
+
+butch_filelists="$S/filelists/"
+butch_created_tarball_dest="$S/dist/"
+
+butch_package_name=%BUTCH_PACKAGE_NAME
+butch_custom_destdir="/opt/$butch_package_name"
+butch_root=$R
+[ -z "$butch_root" ] && butch_root=/
+#currently passing a version from a package is not implemented.
+butch_package_version=0.0.0
+
+# butch_install_dir is usually set to $R
+# it denotes the DESTDIR passed to make
+if $butch_do_custom_destdir ; then
+	butch_install_dir="$butch_custom_destdir"
+	if $butch_do_cleanup_custom_destdir ; then
+		rm -rf "$butch_custom_destdir"
+	fi
+else
+	butch_install_dir="$butch_root/"
+fi
 mkdir -p "$butch_install_dir"
+
+#butch_cache_dir is the place where tarballs are found
+butch_cache_dir="$C"
+
+# this is were stuff gets extracted to and built in
+butch_build_root="$S/build/"
+butch_build_dir="$butch_build_root/%BUTCH_TARDIR"
+
+#this is the location of our optimized config.cache
+butch_configure_cache="$R/lib/config.cache"
+
 [ -z "$CC" ]  && CC=cc
-cd "$S/build" 
-[ -e %BUTCH_TARDIR ] && rm -rf "%BUTCH_TARDIR"
-tar xf "$C/%BUTCH_TARBALL" || (echo tarball error; exit 1)
-cd "$S/build/%BUTCH_TARDIR"
+
+# BUTCH_HAVE_TARBALL will be replaced by true or false
+# depending on whether a tarball is used by the pkg
+if %BUTCH_HAVE_TARBALL ; then
+	if $butch_do_cleanup_builddir && [ -e "$butch_build_dir" ] ; then
+		rm -rf "$butch_build_dir"
+	fi
+	cd "$butch_build_root"
+	tar xf "$butch_cache_dir/%BUTCH_TARBALL" || (echo tarball error; exit 1)
+	cd "$butch_build_dir"
+
+	# this copies a config.cache template (gets installed by pkg/config-cache)
+	# into the actual builddir, so configure skips some timewasting tests
+	if $butch_do_config_cache ; then
+		[ -e "$butch_configure_cache" ] && cp -f "$butch_configure_cache" . || true
+	fi
+fi
+
+# this will be replaced by the contents of the pkg's [build] section.
+# note that all critical commands in the buildscript should use || exit 1
+# so that it aborts on error!
 %BUTCH_BUILDSCRIPT
+
+echo "post buildscript phase..."
+
+# a package that doesn't want to be handled by the code below this line
+# can just call exit 0 as the last statement
+# if it wants to get some other stuff handled it could simply override
+# butch_install_dir (e.g. for sabotages relocate_toolchain script)
+cd "$butch_install_dir"
+[ `ls | wc -l` = "0" ] && have_files=false || have_files=true
+
+relocate() {
+	local target_root=$1
+	local dir=$2
+	local backlinks=$3
+	mkdir -p /$dir
+	[ -d "$butch_install_dir/$dir" ] || return 0
+	cd "$butch_install_dir/$dir" || return 1
+	echo "relocating $butch_install_dir/$dir"
+	for i in * ; do
+		if [ -d "$i" ] ; then
+			local save="$PWD"
+			relocate "$target_root" "$dir/$i" "$backlinks/.."
+			cd "$save"
+		elif [ -f "$i" ] ; then
+			target="$target_root/$dir/$i"
+			echo "ln -sf $backlinks/$butch_install_dir/$dir/$i $target"
+			ln -sf "$backlinks/$butch_install_dir/$dir/$i" "$target"
+		else
+			echo "UNKNOWN object $i"
+		fi
+	done
+	echo "relocation done"
+}
+
+if $have_files ; then
+	# here you could place some code that makes a tarball out of $butch_install_dir
+	# moves the contents to / or create some sort of package file list.
+	# e.g.
+	if [ "$butch_do_filelists" ] ; then
+		mkdir -p "$butch_filelists"
+		filelist="$butch_filelists/$butch_package_name.txt"
+		echo "creating filelist $filelist"
+		find . -type f > "$filelist"
+	fi
+
+	if $butch_do_relocate ; then
+		# now we make a symlink from each file into /
+		for loc in bin etc include lib share var ; do
+			relocate "$butch_root" $loc ..
+		done
+	fi
+	
+	if $butch_do_create_tarball ; then
+		mkdir -p "$butch_created_tarball_dest"
+		tarball="$butch_created_tarball_dest/$butch_package_name-$package_version-$A.tar.bz2"
+		echo "creating dist tarball $tarball"
+		tar cjf "$tarball" * 
+	fi
+
+fi
+
 
