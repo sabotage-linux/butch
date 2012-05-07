@@ -87,24 +87,22 @@ typedef struct {
 	int dl_slots;
 } procslots;
 
+typedef enum {
+	JT_DOWNLOAD = 0,
+	JT_BUILD
+} jobtype;
 
 typedef struct {
 	pkgconfig cfg;
 	stringptrlist* installed_packages;
 	hashlist* package_list;
-	sblist* dl_queue;
-	sblist* build_queue;
+	sblist* queue[JT_BUILD + 1];
 	stringptrlist* dl_checked;
 	stringptrlist* build_checked;
 	stringptrlist* build_errors;
 	procslots slots;
 	char builddir_buf[1024];
 } pkgstate;
-
-typedef enum {
-	JT_DOWNLOAD,
-	JT_BUILD
-} jobtype;
 
 __attribute__((noreturn))
 static void die(stringptr* message) {
@@ -350,21 +348,28 @@ pkgdata* packagelist_add(hashlist* list, stringptr* name, uint32_t hash) {
 	return packagelist_get(list, name, hash);
 }
 
-
 static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, int force) {
-	if(!packagename->size) return;
-	sblist* queue = (jt == JT_DOWNLOAD) ? state->dl_queue : state->build_queue;
+	static int depth = 0;
+	depth++;
+	if(depth > 100) {
+		ulz_fprintf(2, "[WARNING] recursion level above 100!\n");
+		goto end;
+	}
+	if(!packagename->size) goto end;
+	sblist* queue = state->queue[jt];
 	stringptrlist* checklist = (jt == JT_DOWNLOAD) ? state->dl_checked : state->build_checked;
 	
 	// check if we already processed this entry.
-	if(stringptrlist_contains(checklist, packagename)) return;
+	if(stringptrlist_contains(checklist, packagename)) {
+		goto end;
+	}
 	stringptrlist_add(checklist, stringptr_strdup(packagename), packagename->size);
 	
-	if(is_in_queue(packagename, queue)) return;
+	if(is_in_queue(packagename, queue)) goto end;
 	
 	if(!force && is_installed(state->installed_packages, packagename)) {
 		ulz_fprintf(1, "package %s is already installed, skipping %s\n", packagename->ptr, jt == JT_DOWNLOAD ? "download" : "build");
-		return;
+		goto end;
 	}
 	
 	uint32_t hash = stringptr_hash(packagename);
@@ -376,8 +381,9 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 		get_package_contents(&state->cfg, packagename, pkg);
 	}
 	
-	for(i = 0; i < stringptrlist_getsize(pkg->deps); i++)
+	for(i = 0; i < stringptrlist_getsize(pkg->deps); i++) {
 		queue_package(state, stringptrlist_get(pkg->deps, i), jt, force == -1 ? -1 : 0); // omg recursion
+	}
 	
 	if(
 		// if sizeof mirrors is 0, it is a meta package
@@ -387,8 +393,12 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 		add_queue(packagename, queue);
 	}
 	// in case a rebuild is forced of an installed package, but the tarball is missing, redownload
-	if(force && jt == JT_BUILD && stringptrlist_getsize(pkg->mirrors) && !has_tarball(&state->cfg, pkg))
+	if(force && jt == JT_BUILD && stringptrlist_getsize(pkg->mirrors) && !has_tarball(&state->cfg, pkg)) {
 		queue_package(state, packagename, JT_DOWNLOAD, 1);
+	}
+	
+end:
+	depth--;
 	
 }
 
@@ -461,36 +471,40 @@ static stringptr* make_config(pkgconfig* cfg) {
 	return result;
 }
 
+static const stringptr* default_scripts[] = { 
+	[JT_DOWNLOAD] = SPL(
+	"#!/bin/sh\n"
+	"%BUTCH_CONFIG\n"
+	"export butch_package_name=%BUTCH_PACKAGE_NAME\n"
+	"butch_cache_dir=\"$C\"\n"
+	"wget -O \"$butch_cache_dir/%BUTCH_TARBALL\" '%BUTCH_MIRROR_URL'\n"
+	),
+	[JT_BUILD] = SPL(
+	"#!/bin/sh\n"
+	"%BUTCH_CONFIG\n"
+	"butch_package_name=%BUTCH_PACKAGE_NAME\n"
+	"butch_install_dir=\"$R\"\n"
+	"butch_cache_dir=\"$C\"\n\n"
+	"[ -z \"$CC\" ]  && CC=cc\n"
+	"if %BUTCH_HAVE_TARBALL ; then\n"
+	"\tcd \"$S/build\"\n" 
+	"\t[ -e \"%BUTCH_TARDIR\" ] && rm -rf \"%BUTCH_TARDIR\"\n"
+	"\ttar xf \"$butch_cache_dir/%BUTCH_TARBALL\" || (echo tarball error; exit 1)\n"
+	"\tcd \"$S/build/%BUTCH_TARDIR\"\n"
+	"fi\n"
+	"%BUTCH_BUILDSCRIPT\n"
+	),
+};
+
 static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data) {
 	stringptr *temp, *temp2, *config, tb;
-	const stringptr* default_buildscript = SPL(
-		"#!/bin/sh\n"
-		"%BUTCH_CONFIG\n"
-		"butch_package_name=%BUTCH_PACKAGE_NAME\n"
-		"butch_install_dir=\"$R\"\n"
-		"butch_cache_dir=\"$C\"\n\n"
-		"[ -z \"$CC\" ]  && CC=cc\n"
-		"if %BUTCH_HAVE_TARBALL ; then\n"
-		"\tcd \"$S/build\"\n" 
-		"\t[ -e \"%BUTCH_TARDIR\" ] && rm -rf \"%BUTCH_TARDIR\"\n"
-		"\ttar xf \"$butch_cache_dir/%BUTCH_TARBALL\" || (echo tarball error; exit 1)\n"
-		"\tcd \"$S/build/%BUTCH_TARDIR\"\n"
-		"fi\n"
-		"%BUTCH_BUILDSCRIPT\n"
-	);
+	static const char* prefixes[] = { [JT_DOWNLOAD] = "dl", [JT_BUILD] = "build", };
+	const char *prefix = prefixes[ptype];
 	
-	const stringptr* default_downloadscript = SPL(
-		"#!/bin/sh\n"
-		"%BUTCH_CONFIG\n"
-		"export butch_package_name=%BUTCH_PACKAGE_NAME\n"
-		"butch_cache_dir=\"$C\"\n"
-		"wget -O \"$butch_cache_dir/%BUTCH_TARBALL\" '%BUTCH_MIRROR_URL'\n"
-	);
+	static const char* template_env_vars[] = { [JT_DOWNLOAD] = "BUTCH_DOWNLOAD_TEMPLATE", [JT_BUILD] = "BUTCH_BUILD_TEMPLATE" };
+	char *custom_template =  getenv(template_env_vars[ptype]);
 	
-	char *prefix = (ptype == JT_BUILD ? "build" : "dl");
-	char *custom_template = 
-		getenv(ptype == JT_BUILD ? "BUTCH_BUILD_TEMPLATE" : "BUTCH_DOWNLOAD_TEMPLATE");
-	const stringptr* default_script = (ptype == JT_BUILD ? default_buildscript : default_downloadscript);
+	const stringptr* default_script = default_scripts[ptype];;
 	
 	char buf[256];
 	int hastarball;
@@ -588,8 +602,8 @@ static int has_all_deps(pkgstate* state, pkgdata* item) {
 	pkg_exec* dlitem;
 	for(i = 0; i < stringptrlist_getsize(item->deps); i++)
 		if(!is_installed(state->installed_packages, stringptrlist_get(item->deps, i))) return 0;
-	for(i = 0; i < sblist_getsize(state->dl_queue); i++) {
-		dlitem = sblist_get(state->dl_queue, i);
+
+	sblist_iter(state->queue[JT_DOWNLOAD], dlitem) {
 		if(EQ(dlitem->name, item->name)) {
 			return (dlitem->pid == 0); //download finished?
 		}
@@ -602,7 +616,7 @@ static void fill_slots(jobtype ptype, pkgstate* state) {
 	pkg_exec* item;
 	pkgdata* pkg;
 	int* slots = (ptype == JT_DOWNLOAD) ? &state->slots.dl_slots : &state->slots.build_slots;
-	sblist* queue = (ptype == JT_DOWNLOAD) ? state->dl_queue : state->build_queue;
+	sblist* queue = state->queue[ptype];
 	for(i = 0; *slots && i < sblist_getsize(queue); i++) {
 		item = sblist_get(queue, i);
 		if(item->pid == -1) {
@@ -629,11 +643,12 @@ static void prepare_queue(pkgstate* state) {
 }
 
 static void print_queue(pkgstate* state, jobtype jt) {
-	sblist* queue = (jt == JT_DOWNLOAD) ? state->dl_queue : state->build_queue;
-	char *queuename = (jt == JT_DOWNLOAD) ? "download" : "build";
+	sblist* queue = state->queue[jt];
+	static const char* queue_names[] = { [JT_DOWNLOAD] = "download", [JT_BUILD] = "build", };
+	const char *queuename = queue_names[jt];
 	pkg_exec* listitem;
 	
-	log_put(1, VARISL("*** "), VARIC(queuename), VARISL("queue ***"), NULL);
+	log_put(1, VARISL("*** "), VARICC(queuename), VARISL("queue ***"), NULL);
 	sblist_iter(queue, listitem) {
 		log_puts(1, listitem->name);
 		log_putln(1);
@@ -668,15 +683,14 @@ static void warn_errors(pkgstate* state) {
 }
 
 static int process_queue(pkgstate* state) {
-	size_t i;
 	int retval, ret;
 	pkg_exec* listitem;
 	int had_event = 0;
 	pkgdata* pkg;
-	
+	sblist *queue;
 	// check for finished downloads
-	for(i = 0; i < sblist_getsize(state->dl_queue); i++) {
-		listitem = sblist_get(state->dl_queue, i);
+	queue = state->queue[JT_DOWNLOAD];
+	sblist_iter(queue, listitem) {
 		if(listitem->pid && listitem->pid != -1) {
 			ret = waitpid(listitem->pid, &retval, WNOHANG);
 			if(ret != 0) {
@@ -708,8 +722,9 @@ static int process_queue(pkgstate* state) {
 	
 	if(state->slots.dl_slots) fill_slots(JT_DOWNLOAD, state);
 	
-	for(i = 0; i < sblist_getsize(state->build_queue); i++) {
-		listitem = sblist_get(state->build_queue, i);
+	queue = state->queue[JT_BUILD];
+	
+	sblist_iter(queue, listitem) {
 		if(listitem->pid && listitem->pid != -1) {
 			ret = waitpid(listitem->pid, &retval, WNOHANG);
 			if(ret != 0) {
@@ -774,8 +789,8 @@ int main(int argc, char** argv) {
 	get_installed_packages(&state.cfg, state.installed_packages);
 	
 	state.package_list = hashlist_new(64, sizeof(pkgdata));
-	state.build_queue = sblist_new(sizeof(pkg_exec), 64);
-	state.dl_queue = sblist_new(sizeof(pkg_exec), 64);
+	state.queue[JT_DOWNLOAD] = sblist_new(sizeof(pkg_exec), 64);
+	state.queue[JT_BUILD] = sblist_new(sizeof(pkg_exec), 64);
 	state.build_errors = stringptrlist_new(4);
 	state.dl_checked = stringptrlist_new(64);
 	state.build_checked = stringptrlist_new(64);
@@ -810,8 +825,8 @@ int main(int argc, char** argv) {
 	
 	hashlist_free(state.package_list);
 	
-	freequeue(state.dl_queue);
-	freequeue(state.build_queue);
+	freequeue(state.queue[JT_DOWNLOAD]);
+	freequeue(state.queue[JT_BUILD]);
 	
 	log_timestamp(1);
 	log_putspace(1);
