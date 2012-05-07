@@ -764,7 +764,7 @@ static int process_queue(pkgstate* state) {
 	int done = state->slots[JT_DOWNLOAD].avail == state->slots[JT_DOWNLOAD].max &&
 	         state->slots[JT_BUILD].avail == state->slots[JT_BUILD].max;
 	
-	if(done) {
+	if(done && !stringptrlist_getsize(state->build_errors)) {
 		if(!(queue_empty(state->queue[JT_DOWNLOAD])) ||
 		   !(queue_empty(state->queue[JT_BUILD]))) {
 			ulz_fprintf(2, "[WARNING] circular reference detected!\n");
