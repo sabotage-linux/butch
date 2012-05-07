@@ -815,12 +815,20 @@ int main(int argc, char** argv) {
 	state.checked[JT_DOWNLOAD] = stringptrlist_new(64);
 	state.checked[JT_BUILD] = stringptrlist_new(64);
 	
-	int force[] = { [PKGC_REBUILD] = 1,  [PKGC_REBUILD_ALL] = -1, [PKGC_INSTALL] = 0 };
-	stringptr curr;
-	for(i=2; i < argc; i++) {
-		queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_DOWNLOAD, 0);
+	for(i = 2; i < argc; i++) {
+		const int force[] = { [PKGC_REBUILD] = 1,  [PKGC_REBUILD_ALL] = -1, [PKGC_INSTALL] = 0 };
+		stringptr curr;
+		// allow something like pkg/packagename to be passed
+		char* pkg_name = strrchr(argv[i], '/');
+		
+		if(!pkg_name) pkg_name = argv[i];
+		else pkg_name++;
+		
+		stringptr_fromchar(pkg_name, &curr);
+		
+		queue_package(&state, &curr, JT_DOWNLOAD, 0);
 		if(mode != PKGC_PREFETCH) 
-			queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_BUILD, force[mode]);
+			queue_package(&state, &curr, JT_BUILD, force[mode]);
 	}
 	print_info(&state);
 	prepare_slots(&state);
