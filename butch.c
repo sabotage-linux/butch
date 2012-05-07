@@ -767,7 +767,7 @@ static int process_queue(pkgstate* state) {
 	if(done) {
 		if(!(queue_empty(state->queue[JT_DOWNLOAD])) ||
 		   !(queue_empty(state->queue[JT_BUILD]))) {
-			ulz_fprintf(2, "[WARNING] circular reference detected!");
+			ulz_fprintf(2, "[WARNING] circular reference detected!\n");
 		}
 	}
 	
