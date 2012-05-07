@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2011  rofl0r
+    Copyright (C) 2011,2012  rofl0r
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -83,8 +83,8 @@ typedef struct {
 } pkgconfig;
 
 typedef struct {
-	int build_slots;
-	int dl_slots;
+	unsigned avail;
+	unsigned max;
 } procslots;
 
 typedef enum {
@@ -99,7 +99,7 @@ typedef struct {
 	sblist* queue[JT_BUILD + 1];
 	stringptrlist* checked[JT_BUILD + 1];
 	stringptrlist* build_errors;
-	procslots slots;
+	procslots slots[JT_BUILD + 1];
 	char builddir_buf[1024];
 } pkgstate;
 
@@ -565,16 +565,11 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 extern char** environ;
 
 static void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data) {
+	static const char* lt_msgs[] = { [JT_DOWNLOAD] = " downloading ", [JT_BUILD] = " building ", };
 	char* arr[2];
 	create_script(ptype, state, item, data);
 	log_timestamp(1);
-	log_putspace(1);
-	if(ptype == JT_DOWNLOAD) {
-		log_puts(1, SPL("downloading "));
-	} else 
-		log_puts(1, SPL("building "));
-
-	log_put(1, VARIS(item->name), VARISL(" ("), VARIS(item->scripts.filename), VARISL(") -> "), VARIS(item->scripts.stdoutfn), NULL);
+	log_put(1, VARICC(lt_msgs[ptype]), VARIS(item->name), VARISL(" ("), VARIS(item->scripts.filename), VARISL(") -> "), VARIS(item->scripts.stdoutfn), NULL);
 
 	arr[0] = item->scripts.filename->ptr;
 	arr[1] = NULL;
@@ -610,13 +605,22 @@ static int has_all_deps(pkgstate* state, pkgdata* item) {
 	return (!stringptrlist_getsize(item->mirrors) || has_tarball(&state->cfg, item));
 }
 
+static int queue_empty(sblist* queue) {
+	pkg_exec* item;
+	sblist_iter(queue, item) {
+		if(item->pid != 0)
+			return 0;
+	}
+	return 1;
+}
+
 static void fill_slots(jobtype ptype, pkgstate* state) {
 	size_t i;
 	pkg_exec* item;
 	pkgdata* pkg;
-	int* slots = (ptype == JT_DOWNLOAD) ? &state->slots.dl_slots : &state->slots.build_slots;
+	unsigned* slots_avail = &state->slots[ptype].avail;
 	sblist* queue = state->queue[ptype];
-	for(i = 0; *slots && i < sblist_getsize(queue); i++) {
+	for(i = 0; *slots_avail && i < sblist_getsize(queue); i++) {
 		item = sblist_get(queue, i);
 		if(item->pid == -1) {
 			pkg = packagelist_get(state->package_list, item->name, stringptr_hash(item->name));
@@ -628,15 +632,17 @@ static void fill_slots(jobtype ptype, pkgstate* state) {
 					}
 				}
 				launch_thread(ptype, state, item, pkg);
-				(*slots)--;
+				(*slots_avail)--;
 			}
 		}
 	}
 }
 
-static void prepare_queue(pkgstate* state) {
-	state->slots.build_slots = NUM_BUILD_THREADS;
-	state->slots.dl_slots = NUM_DL_THREADS;
+static void prepare_slots(pkgstate* state) {
+	state->slots[JT_DOWNLOAD].max = NUM_DL_THREADS;
+	state->slots[JT_BUILD].max = NUM_BUILD_THREADS;
+	state->slots[JT_DOWNLOAD].avail = state->slots[JT_DOWNLOAD].max;
+	state->slots[JT_BUILD].avail = state->slots[JT_BUILD].max;
 	fill_slots(JT_DOWNLOAD, state);
 	fill_slots(JT_BUILD, state);
 }
@@ -681,20 +687,24 @@ static void warn_errors(pkgstate* state) {
 	}
 }
 
+// TODO: make the two loops into a generic one and put it into a sep. function
 static int process_queue(pkgstate* state) {
 	int retval, ret;
 	pkg_exec* listitem;
 	int had_event = 0;
 	pkgdata* pkg;
 	sblist *queue;
+	
+	jobtype jt = JT_DOWNLOAD;
+	
 	// check for finished downloads
-	queue = state->queue[JT_DOWNLOAD];
+	queue = state->queue[jt];
 	sblist_iter(queue, listitem) {
 		if(listitem->pid && listitem->pid != -1) {
 			ret = waitpid(listitem->pid, &retval, WNOHANG);
 			if(ret != 0) {
 				had_event = 1;
-				state->slots.dl_slots++;
+				state->slots[jt].avail++;
 				posix_spawn_file_actions_destroy(&listitem->fa);
 				if(ret == -1) {
 					log_perror("waitpid");
@@ -719,16 +729,17 @@ static int process_queue(pkgstate* state) {
 		}
 	}
 	
-	if(state->slots.dl_slots) fill_slots(JT_DOWNLOAD, state);
+	if(state->slots[jt].avail) fill_slots(jt, state);
 	
-	queue = state->queue[JT_BUILD];
+	jt = JT_BUILD;
+	queue = state->queue[jt];
 	
 	sblist_iter(queue, listitem) {
 		if(listitem->pid && listitem->pid != -1) {
 			ret = waitpid(listitem->pid, &retval, WNOHANG);
 			if(ret != 0) {
 				had_event = 1;
-				state->slots.build_slots++;
+				state->slots[jt].avail++;
 				posix_spawn_file_actions_destroy(&listitem->fa);
 				if(ret == -1) {
 					log_perror("waitpid");
@@ -746,11 +757,21 @@ static int process_queue(pkgstate* state) {
 		}
 	}
 	
-	if(state->slots.build_slots) fill_slots(JT_BUILD, state);
+	if(state->slots[jt].avail) fill_slots(JT_BUILD, state);
 	
 	if(had_event) warn_errors(state);
 	
-	return !(state->slots.dl_slots == NUM_DL_THREADS && state->slots.build_slots == NUM_BUILD_THREADS);
+	int done = state->slots[JT_DOWNLOAD].avail == state->slots[JT_DOWNLOAD].max &&
+	         state->slots[JT_BUILD].avail == state->slots[JT_BUILD].max;
+	
+	if(done) {
+		if(!(queue_empty(state->queue[JT_DOWNLOAD])) ||
+		   !(queue_empty(state->queue[JT_BUILD]))) {
+			ulz_fprintf(2, "[WARNING] circular reference detected!");
+		}
+	}
+	
+	return !done;
 }
 
 static void freequeue(sblist* queue) {
@@ -802,7 +823,7 @@ int main(int argc, char** argv) {
 			queue_package(&state, stringptr_fromchar(argv[i], &curr), JT_BUILD, force[mode]);
 	}
 	print_info(&state);
-	prepare_queue(&state);
+	prepare_slots(&state);
 	
 	while(process_queue(&state)) sleep(1);
 	
