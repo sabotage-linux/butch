@@ -103,6 +103,8 @@ typedef struct {
 	char builddir_buf[1024];
 } pkgstate;
 
+static const char* queue_names[] = { [JT_DOWNLOAD] = "download", [JT_BUILD] = "build", };
+
 __attribute__((noreturn))
 static void die(stringptr* message) {
 	log_puts(2, message);
@@ -367,7 +369,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	if(is_in_queue(packagename, queue)) goto end;
 	
 	if(!force && is_installed(state->installed_packages, packagename)) {
-		ulz_fprintf(1, "package %s is already installed, skipping %s\n", packagename->ptr, jt == JT_DOWNLOAD ? "download" : "build");
+		ulz_fprintf(1, "package %s is already installed, skipping %s\n", packagename->ptr, queue_names[jt]);
 		goto end;
 	}
 	
@@ -649,7 +651,6 @@ static void prepare_slots(pkgstate* state) {
 
 static void print_queue(pkgstate* state, jobtype jt) {
 	sblist* queue = state->queue[jt];
-	static const char* queue_names[] = { [JT_DOWNLOAD] = "download", [JT_BUILD] = "build", };
 	const char *queuename = queue_names[jt];
 	pkg_exec* listitem;
 	
@@ -687,82 +688,76 @@ static void warn_errors(pkgstate* state) {
 	}
 }
 
-// TODO: make the two loops into a generic one and put it into a sep. function
-static int process_queue(pkgstate* state) {
-	int retval, ret;
-	pkg_exec* listitem;
-	int had_event = 0;
-	pkgdata* pkg;
+static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event) {
 	sblist *queue;
+	pkg_exec* listitem;
+	int retval, ret;
+	pkgdata* pkg;
 	
-	jobtype jt = JT_DOWNLOAD;
-	
-	// check for finished downloads
 	queue = state->queue[jt];
+	
 	sblist_iter(queue, listitem) {
-		if(listitem->pid && listitem->pid != -1) {
-			ret = waitpid(listitem->pid, &retval, WNOHANG);
-			if(ret != 0) {
-				had_event = 1;
-				state->slots[jt].avail++;
-				posix_spawn_file_actions_destroy(&listitem->fa);
-				if(ret == -1) {
-					log_perror("waitpid");
+		// check for a running process. pid 0 means finished, -1 waiting for a slot.
+		if(listitem->pid == 0 || listitem->pid == -1) continue;
+		
+		ret = waitpid(listitem->pid, &retval, WNOHANG);
+		
+		// still busy
+		if(ret == 0) continue;
+		*had_event = 1;
+		state->slots[jt].avail++;
+		posix_spawn_file_actions_destroy(&listitem->fa);
+		if(ret == -1) {
+			log_perror("waitpid");
+			goto retry;
+		}
+		// process exited gracefully with exitstatus 0
+		if(retval == 0) {
+			if(jt == JT_DOWNLOAD) {
+				pkg = packagelist_get(state->package_list, listitem->name, stringptr_hash(listitem->name));
+				ret = verify_tarball(&state->cfg, pkg);
+				pkg->verified = !ret;
+				if(ret == 1) { // download too small, retry...
+					log_put(2, VARISL("retrying too short download of "), VARIS(listitem->name), NULL);
 					goto retry;
+				} else {
+					// do not retry on success, hash mismatch or too big file.
+					listitem->pid = 0; // 0 means finished.
 				}
-				if(!retval) {
-					pkg = packagelist_get(state->package_list, listitem->name, stringptr_hash(listitem->name));
-					ret = verify_tarball(&state->cfg, pkg);
-					pkg->verified = !ret;
-					if(ret == 1) { // download too small, retry...
-						log_put(2, VARISL("retrying too short download of "), VARIS(listitem->name), NULL);
-						listitem->pid = -1;
-					} else // do not retry on success, hash mismatch or too big file.
-						listitem->pid = 0; // 0 means finished.
-				}
-				else {
-					log_put(2, VARISL("got error "), VARII(WEXITSTATUS(retval)), VARISL(" from download script of "), VARIS(listitem->name) ,VARISL(", retrying"), NULL);
-					retry:
-					listitem->pid = -1; // retry
-				}
+			} else {
+				listitem->pid = 0; // 0 means finished.
+				mark_finished(state, listitem->name);
+			}
+		} else {
+			if(jt == JT_DOWNLOAD) {
+				log_put(2, VARISL("got error "), VARII(WEXITSTATUS(retval)), VARISL(" from download script of "), VARIS(listitem->name) ,VARISL(", retrying"), NULL);
+				retry:
+				listitem->pid = -1;
+			} else {
+				listitem->pid = 0;
+				stringptrlist_add(state->build_errors, stringptr_strdup(listitem->name), listitem->name->size);
 			}
 		}
 	}
+}
+
+static int process_queue(pkgstate* state) {
+	int had_event = 0;
+	jobtype jt;
 	
+	// check for finished downloads
+	jt = JT_DOWNLOAD;
+	check_finished_processes(state, jt, &had_event);
 	if(state->slots[jt].avail) fill_slots(jt, state);
 	
 	jt = JT_BUILD;
-	queue = state->queue[jt];
-	
-	sblist_iter(queue, listitem) {
-		if(listitem->pid && listitem->pid != -1) {
-			ret = waitpid(listitem->pid, &retval, WNOHANG);
-			if(ret != 0) {
-				had_event = 1;
-				state->slots[jt].avail++;
-				posix_spawn_file_actions_destroy(&listitem->fa);
-				if(ret == -1) {
-					log_perror("waitpid");
-					listitem->pid = -1; // retrying;
-				} else {
-					if(!retval) {
-						listitem->pid = 0; // 0 means finished.
-						mark_finished(state, listitem->name);
-					} else {
-						listitem->pid = 0;
-						stringptrlist_add(state->build_errors, stringptr_strdup(listitem->name), listitem->name->size);
-					}
-				}
-			}
-		}
-	}
-	
+	check_finished_processes(state, jt, &had_event);
 	if(state->slots[jt].avail) fill_slots(JT_BUILD, state);
 	
 	if(had_event) warn_errors(state);
 	
-	int done = state->slots[JT_DOWNLOAD].avail == state->slots[JT_DOWNLOAD].max &&
-	         state->slots[JT_BUILD].avail == state->slots[JT_BUILD].max;
+	int done = (state->slots[JT_DOWNLOAD].avail == state->slots[JT_DOWNLOAD].max &&
+	         state->slots[JT_BUILD].avail == state->slots[JT_BUILD].max);
 	
 	if(done && !stringptrlist_getsize(state->build_errors)) {
 		if(!(queue_empty(state->queue[JT_DOWNLOAD])) ||
