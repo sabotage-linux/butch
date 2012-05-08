@@ -105,6 +105,9 @@ typedef struct {
 
 static const char* queue_names[] = { [JT_DOWNLOAD] = "download", [JT_BUILD] = "build", };
 
+#define PID_WAITING ((pid_t) -1)
+#define PID_FINISHED ((pid_t) 0)
+
 __attribute__((noreturn))
 static void die(stringptr* message) {
 	log_puts(2, message);
@@ -208,7 +211,7 @@ static void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata
 	
 	for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
 		tmp = stringptrlist_get(ini, start);
-		if(tmp->size) stringptrlist_add(out->mirrors, stringptr_strdup(tmp), tmp->size);
+		if(tmp->size) stringptrlist_add_strdup(out->mirrors, tmp);
 	}
 	
 	
@@ -247,7 +250,7 @@ static void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata
 	
 	for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
 		tmp = stringptrlist_get(ini, start);
-		if(tmp->size) stringptrlist_add(out->deps, stringptr_strdup(tmp), tmp->size);
+		if(tmp->size) stringptrlist_add_strdup(out->deps, tmp);
 	}
 	
 	sec = iniparser_get_section(ini, SPL("build")); // the build section has always to come last
@@ -262,7 +265,7 @@ static void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata
 		
 		for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
 			tmp = stringptrlist_get(ini, start);
-			stringptrlist_add(out->buildscript, stringptr_strdup(tmp), tmp->size);
+			stringptrlist_add_strdup(out->buildscript, tmp);
 		}
 	} else 
 		out->buildscript = stringptrlist_new(1);
@@ -283,7 +286,7 @@ static void get_installed_packages(pkgconfig* cfg, stringptrlist* packages) {
 	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", cfg->pkgroot.ptr);
 	if(fileparser_open(&f, buf)) goto err;
 	while(!fileparser_readline(&f) && !fileparser_getline(&f, &line) && line.size) {
-		stringptrlist_add(packages, stringptr_strdup(&line), line.size);
+		stringptrlist_add_strdup(packages, &line);
 	}
 	fileparser_close(&f);
 	return;
@@ -324,7 +327,7 @@ static int is_in_queue(stringptr* packagename, sblist* queue) {
 static void add_queue(stringptr* packagename, sblist* queue) {
 	pkg_exec execdata;
 	memset(&execdata, 0, sizeof(execdata));
-	execdata.pid = (pid_t) -1;
+	execdata.pid = PID_WAITING;
 	execdata.name = stringptr_copy(packagename);
 	sblist_add(queue, &execdata);
 }
@@ -364,7 +367,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	if(stringptrlist_contains(checklist, packagename)) {
 		goto end;
 	}
-	stringptrlist_add(checklist, stringptr_strdup(packagename), packagename->size);
+	stringptrlist_add_strdup(checklist, packagename);
 	
 	if(is_in_queue(packagename, queue)) goto end;
 	
@@ -601,16 +604,18 @@ static int has_all_deps(pkgstate* state, pkgdata* item) {
 
 	sblist_iter(state->queue[JT_DOWNLOAD], dlitem) {
 		if(EQ(dlitem->name, item->name)) {
-			return (dlitem->pid == 0); //download finished?
+			return (dlitem->pid == PID_FINISHED); //download finished?
 		}
 	}
 	return (!stringptrlist_getsize(item->mirrors) || has_tarball(&state->cfg, item));
 }
 
+/* returns 1 if there are no unfinished (i.e. waiting or running)
+ * processes in the queue, otherwise 0 */
 static int queue_empty(sblist* queue) {
 	pkg_exec* item;
 	sblist_iter(queue, item) {
-		if(item->pid != 0)
+		if(item->pid != PID_FINISHED)
 			return 0;
 	}
 	return 1;
@@ -624,7 +629,7 @@ static void fill_slots(jobtype ptype, pkgstate* state) {
 	sblist* queue = state->queue[ptype];
 	for(i = 0; *slots_avail && i < sblist_getsize(queue); i++) {
 		item = sblist_get(queue, i);
-		if(item->pid == -1) {
+		if(item->pid == PID_WAITING) {
 			pkg = packagelist_get(state->package_list, item->name, stringptr_hash(item->name));
 			if(ptype == JT_DOWNLOAD || has_all_deps(state, pkg)) {
 				if(ptype == JT_BUILD && !pkg->verified && stringptrlist_getsize(pkg->mirrors)) {
@@ -670,7 +675,7 @@ static void mark_finished(pkgstate* state, stringptr* name) {
 	char buf[256];
 	if(!stringptrlist_contains(state->installed_packages, name)) {
 		ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
-		stringptrlist_add(state->installed_packages, stringptr_strdup(name), name->size);
+		stringptrlist_add_strdup(state->installed_packages, name);
 		int fd = open(buf, O_WRONLY | O_CREAT | O_APPEND, 0664);
 		if(fd == -1) die(SPL("error couldnt write to installed.dat!"));
 		write(fd, name->ptr, name->size);
@@ -689,18 +694,15 @@ static void warn_errors(pkgstate* state) {
 }
 
 static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event) {
-	sblist *queue;
 	pkg_exec* listitem;
-	int retval, ret;
-	pkgdata* pkg;
-	
-	queue = state->queue[jt];
+	sblist *queue = state->queue[jt];
 	
 	sblist_iter(queue, listitem) {
-		// check for a running process. pid 0 means finished, -1 waiting for a slot.
-		if(listitem->pid == 0 || listitem->pid == -1) continue;
+		int exitstatus, ret;
+		// check for a running process.
+		if(listitem->pid == PID_FINISHED || listitem->pid == PID_WAITING) continue;
 		
-		ret = waitpid(listitem->pid, &retval, WNOHANG);
+		ret = waitpid(listitem->pid, &exitstatus, WNOHANG);
 		
 		// still busy
 		if(ret == 0) continue;
@@ -711,9 +713,12 @@ static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event
 			log_perror("waitpid");
 			goto retry;
 		}
-		// process exited gracefully with exitstatus 0
-		if(retval == 0) {
+		
+		if(exitstatus == 0) {
+			// process exited gracefully
 			if(jt == JT_DOWNLOAD) {
+				/* verify size and checksum of the finished download */
+				pkgdata* pkg;
 				pkg = packagelist_get(state->package_list, listitem->name, stringptr_hash(listitem->name));
 				ret = verify_tarball(&state->cfg, pkg);
 				pkg->verified = !ret;
@@ -722,49 +727,41 @@ static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event
 					goto retry;
 				} else {
 					// do not retry on success, hash mismatch or too big file.
-					listitem->pid = 0; // 0 means finished.
+					goto finished;
 				}
 			} else {
-				listitem->pid = 0; // 0 means finished.
 				mark_finished(state, listitem->name);
+				goto finished;
 			}
 		} else {
 			if(jt == JT_DOWNLOAD) {
-				log_put(2, VARISL("got error "), VARII(WEXITSTATUS(retval)), VARISL(" from download script of "), VARIS(listitem->name) ,VARISL(", retrying"), NULL);
-				retry:
-				listitem->pid = -1;
+				log_put(2, VARISL("got error "), VARII(WEXITSTATUS(exitstatus)), VARISL(" from download script of "), VARIS(listitem->name) ,VARISL(", retrying"), NULL);
+retry:
+				listitem->pid = PID_WAITING;
 			} else {
-				listitem->pid = 0;
-				stringptrlist_add(state->build_errors, stringptr_strdup(listitem->name), listitem->name->size);
+				stringptrlist_add_strdup(state->build_errors, listitem->name);
+finished:
+				listitem->pid = PID_FINISHED;
+				
 			}
 		}
 	}
 }
 
+static void check_processes_and_fill_slots(pkgstate* state, jobtype jt, int* had_event) {
+	check_finished_processes(state, jt, had_event);
+	if(state->slots[jt].avail) fill_slots(jt, state);
+}
 static int process_queue(pkgstate* state) {
 	int had_event = 0;
-	jobtype jt;
 	
-	// check for finished downloads
-	jt = JT_DOWNLOAD;
-	check_finished_processes(state, jt, &had_event);
-	if(state->slots[jt].avail) fill_slots(jt, state);
-	
-	jt = JT_BUILD;
-	check_finished_processes(state, jt, &had_event);
-	if(state->slots[jt].avail) fill_slots(JT_BUILD, state);
+	check_processes_and_fill_slots(state, JT_DOWNLOAD, &had_event);
+	check_processes_and_fill_slots(state, JT_BUILD, &had_event);
 	
 	if(had_event) warn_errors(state);
 	
 	int done = (state->slots[JT_DOWNLOAD].avail == state->slots[JT_DOWNLOAD].max &&
 	         state->slots[JT_BUILD].avail == state->slots[JT_BUILD].max);
-	
-	if(done && !stringptrlist_getsize(state->build_errors)) {
-		if(!(queue_empty(state->queue[JT_DOWNLOAD])) ||
-		   !(queue_empty(state->queue[JT_BUILD]))) {
-			ulz_fprintf(2, "[WARNING] circular reference detected!\n");
-		}
-	}
 	
 	return !done;
 }
@@ -831,6 +828,9 @@ int main(int argc, char** argv) {
 	while(process_queue(&state)) sleep(1);
 	
 	int failed = stringptrlist_getsize(state.build_errors) != 0;
+	
+	if(!failed && (!(queue_empty(state.queue[JT_DOWNLOAD])) || !(queue_empty(state.queue[JT_BUILD]))))
+		ulz_fprintf(2, "[WARNING] circular reference detected!\n");
 	
 	// clean up ...
 	
