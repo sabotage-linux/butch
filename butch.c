@@ -172,7 +172,7 @@ static void getconfig(pkgstate* state) {
 static int get_tarball_filename(pkgstate* state, pkgdata* package, char* buf, size_t bufsize, int with_path) {
 	if(stringptrlist_getsize(package->mirrors) == 0) return 0;
 	char* fn = getfilename(stringptrlist_get(package->mirrors, 0));
-	static const char* fmt_strings[] = { [0] = "%s\0%s", [1] = "%s/%s", };
+	static const char* fmt_strings[] = { [0] = "%s", [1] = "%s/%s", };
 	char* first_arg[] = { [0] = fn, [1] = state->cfg.filecache.ptr, };
 	char* second_arg[] = { [0] = "", [1] = fn, };
 	ulz_snprintf(buf, bufsize, fmt_strings[with_path], first_arg[with_path], second_arg[with_path]);
