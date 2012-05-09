@@ -169,16 +169,13 @@ static void getconfig(pkgstate* state) {
 #undef check_access
 }
 
-static int get_tarball_filename(pkgstate* state, pkgdata* package, char* buf, size_t bufsize) {
-	(void) state;
+static int get_tarball_filename(pkgstate* state, pkgdata* package, char* buf, size_t bufsize, int with_path) {
 	if(stringptrlist_getsize(package->mirrors) == 0) return 0;
-	ulz_snprintf(buf, bufsize, "%s", getfilename(stringptrlist_get(package->mirrors, 0)));
-	return 1;
-}
-
-static int get_tarball_filename_with_path(pkgstate* state, pkgdata* package, char* buf, size_t bufsize) {
-	if(stringptrlist_getsize(package->mirrors) == 0) return 0;
-	ulz_snprintf(buf, bufsize, "%s/%s", state->cfg.filecache.ptr, getfilename(stringptrlist_get(package->mirrors, 0)));
+	char* fn = getfilename(stringptrlist_get(package->mirrors, 0));
+	static const char* fmt_strings[] = { [0] = "%s\0%s", [1] = "%s/%s", };
+	char* first_arg[] = { [0] = fn, [1] = state->cfg.filecache.ptr, };
+	char* second_arg[] = { [0] = "", [1] = fn, };
+	ulz_snprintf(buf, bufsize, fmt_strings[with_path], first_arg[with_path], second_arg[with_path]);
 	return 1;
 }
 
@@ -224,7 +221,7 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 	else {
 		// must run after mirrors!
 		stringptr fe;
-		if(get_tarball_filename(state, out, buf, sizeof(buf))) {
+		if(get_tarball_filename(state, out, buf, sizeof(buf), 0)) {
 			stringptr_fromchar(buf, &fe);
 			strip_fileext(&fe);
 		} else {
@@ -301,7 +298,7 @@ static int is_installed(stringptrlist* packages, stringptr* packagename) {
 
 static int has_tarball(pkgstate* state, pkgdata* package) {
 	char buf[256];
-	if(!get_tarball_filename_with_path(state, package, buf, sizeof(buf))) goto err;
+	if(!get_tarball_filename(state, package, buf, sizeof(buf), 1)) goto err;
 	return (access(buf, R_OK) != -1);
 	err:
 	return 0;
@@ -416,7 +413,7 @@ static int verify_tarball(pkgstate* state, pkgdata* package) {
 	int fd;
 	uint64_t pos, len = 0, nread;
 	stringptr hash;
-	get_tarball_filename_with_path(state, package, buf, sizeof(buf));
+	get_tarball_filename(state, package, buf, sizeof(buf), 1);
 	if(package->filesize) {
 		len = getfilesize(buf);
 		if(len < package->filesize) {
@@ -518,7 +515,7 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr); 
 	
 	config = make_config(&state->cfg);
-	hastarball = get_tarball_filename(state, data, buf, sizeof(buf));
+	hastarball = get_tarball_filename(state, data, buf, sizeof(buf), 0);
 	
 	stringptr* buildscr = (ptype == JT_BUILD ? stringptrlist_tostring(data->buildscript) : SPL(""));
 	
