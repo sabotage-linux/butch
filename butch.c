@@ -169,15 +169,16 @@ static void getconfig(pkgstate* state) {
 #undef check_access
 }
 
-static int get_tarball_filename(pkgdata* package, char* buf, size_t bufsize) {
+static int get_tarball_filename(pkgstate* state, pkgdata* package, char* buf, size_t bufsize) {
+	(void) state;
 	if(stringptrlist_getsize(package->mirrors) == 0) return 0;
 	ulz_snprintf(buf, bufsize, "%s", getfilename(stringptrlist_get(package->mirrors, 0)));
 	return 1;
 }
 
-static int get_tarball_filename_with_path(pkgconfig* cfg, pkgdata* package, char* buf, size_t bufsize) {
+static int get_tarball_filename_with_path(pkgstate* state, pkgdata* package, char* buf, size_t bufsize) {
 	if(stringptrlist_getsize(package->mirrors) == 0) return 0;
-	ulz_snprintf(buf, bufsize, "%s/%s", cfg->filecache.ptr, getfilename(stringptrlist_get(package->mirrors, 0)));
+	ulz_snprintf(buf, bufsize, "%s/%s", state->cfg.filecache.ptr, getfilename(stringptrlist_get(package->mirrors, 0)));
 	return 1;
 }
 
@@ -192,10 +193,10 @@ static void strip_fileext(stringptr* s) {
 }
 
 // contract: out is already zeroed and contains only name
-static void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata* out) {
+static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdata* out) {
 	ini_section sec;
 	char buf[256];
-	ulz_snprintf(buf, sizeof(buf), "%s/pkg/%s", cfg->pkgroot.ptr, packagename->ptr);
+	ulz_snprintf(buf, sizeof(buf), "%s/pkg/%s", state->cfg.pkgroot.ptr, packagename->ptr);
 	
 	stringptr* fc = stringptr_fromfile(buf);
 	stringptr val;
@@ -223,7 +224,7 @@ static void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata
 	else {
 		// must run after mirrors!
 		stringptr fe;
-		if(get_tarball_filename(out, buf, sizeof(buf))) {
+		if(get_tarball_filename(state, out, buf, sizeof(buf))) {
 			stringptr_fromchar(buf, &fe);
 			strip_fileext(&fe);
 		} else {
@@ -278,15 +279,15 @@ static void get_package_contents(pkgconfig* cfg, stringptr* packagename, pkgdata
 	die(SPL("package not existing"));
 }
 
-static void get_installed_packages(pkgconfig* cfg, stringptrlist* packages) {
+static void get_installed_packages(pkgstate* state) {
 	fileparser f;
 	char buf[256];
 	stringptr line;
 	
-	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", cfg->pkgroot.ptr);
+	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
 	if(fileparser_open(&f, buf)) goto err;
 	while(!fileparser_readline(&f) && !fileparser_getline(&f, &line) && line.size) {
-		stringptrlist_add_strdup(packages, &line);
+		stringptrlist_add_strdup(state->installed_packages, &line);
 	}
 	fileparser_close(&f);
 	return;
@@ -298,9 +299,9 @@ static int is_installed(stringptrlist* packages, stringptr* packagename) {
 	return stringptrlist_contains(packages, packagename);
 }
 
-static int has_tarball(pkgconfig* cfg, pkgdata* package) {
+static int has_tarball(pkgstate* state, pkgdata* package) {
 	char buf[256];
-	if(!get_tarball_filename_with_path(cfg, package, buf, sizeof(buf))) goto err;
+	if(!get_tarball_filename_with_path(state, package, buf, sizeof(buf))) goto err;
 	return (access(buf, R_OK) != -1);
 	err:
 	return 0;
@@ -382,7 +383,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	
 	if(!pkg) {
 		pkg = packagelist_add(state->package_list, packagename, hash);
-		get_package_contents(&state->cfg, packagename, pkg);
+		get_package_contents(state, packagename, pkg);
 	}
 	
 	for(i = 0; i < stringptrlist_getsize(pkg->deps); i++) {
@@ -391,13 +392,13 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	
 	if(
 		// if sizeof mirrors is 0, it is a meta package
-		(jt == JT_DOWNLOAD && stringptrlist_getsize(pkg->mirrors) && !has_tarball(&state->cfg, pkg))
+		(jt == JT_DOWNLOAD && stringptrlist_getsize(pkg->mirrors) && !has_tarball(state, pkg))
 		|| (jt == JT_BUILD && stringptrlist_getsize(pkg->buildscript))
 	) {
 		add_queue(packagename, queue);
 	}
 	// in case a rebuild is forced of an installed package, but the tarball is missing, redownload
-	if(force && jt == JT_BUILD && stringptrlist_getsize(pkg->mirrors) && !has_tarball(&state->cfg, pkg)) {
+	if(force && jt == JT_BUILD && stringptrlist_getsize(pkg->mirrors) && !has_tarball(state, pkg)) {
 		queue_package(state, packagename, JT_DOWNLOAD, 1);
 	}
 	
@@ -408,14 +409,14 @@ end:
 
 //return 0 on success.
 //checks if filesize and/or sha512 matches, if used.
-static int verify_tarball(pkgconfig* cfg, pkgdata* package) {
+static int verify_tarball(pkgstate* state, pkgdata* package) {
 	char buf[4096];
 	char* error;
 	SHA512_CTX ctx;
 	int fd;
 	uint64_t pos, len = 0, nread;
 	stringptr hash;
-	get_tarball_filename_with_path(cfg, package, buf, sizeof(buf));
+	get_tarball_filename_with_path(state, package, buf, sizeof(buf));
 	if(package->filesize) {
 		len = getfilesize(buf);
 		if(len < package->filesize) {
@@ -517,7 +518,7 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr); 
 	
 	config = make_config(&state->cfg);
-	hastarball = get_tarball_filename(data, buf, sizeof(buf));
+	hastarball = get_tarball_filename(state, data, buf, sizeof(buf));
 	
 	stringptr* buildscr = (ptype == JT_BUILD ? stringptrlist_tostring(data->buildscript) : SPL(""));
 	
@@ -607,7 +608,7 @@ static int has_all_deps(pkgstate* state, pkgdata* item) {
 			return (dlitem->pid == PID_FINISHED); //download finished?
 		}
 	}
-	return (!stringptrlist_getsize(item->mirrors) || has_tarball(&state->cfg, item));
+	return (!stringptrlist_getsize(item->mirrors) || has_tarball(state, item));
 }
 
 /* returns 1 if there are no unfinished (i.e. waiting or running)
@@ -633,7 +634,7 @@ static void fill_slots(jobtype ptype, pkgstate* state) {
 			pkg = packagelist_get(state->package_list, item->name, stringptr_hash(item->name));
 			if(ptype == JT_DOWNLOAD || has_all_deps(state, pkg)) {
 				if(ptype == JT_BUILD && !pkg->verified && stringptrlist_getsize(pkg->mirrors)) {
-					if (! (pkg->verified = !(verify_tarball(&state->cfg, pkg)))) {
+					if (! (pkg->verified = !(verify_tarball(state, pkg)))) {
 						log_put(2, VARISL("WARNING: "), VARIS(item->name), VARISL(" failed to verify! please delete its tarball and retry downloading it."), NULL);
 						continue;
 					}
@@ -720,7 +721,7 @@ static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event
 				/* verify size and checksum of the finished download */
 				pkgdata* pkg;
 				pkg = packagelist_get(state->package_list, listitem->name, stringptr_hash(listitem->name));
-				ret = verify_tarball(&state->cfg, pkg);
+				ret = verify_tarball(state, pkg);
 				pkg->verified = !ret;
 				if(ret == 1) { // download too small, retry...
 					log_put(2, VARISL("retrying too short download of "), VARIS(listitem->name), NULL);
@@ -798,7 +799,7 @@ int main(int argc, char** argv) {
 	
 	getconfig(&state);
 	state.installed_packages = stringptrlist_new(64);
-	get_installed_packages(&state.cfg, state.installed_packages);
+	get_installed_packages(&state);
 	
 	state.package_list = hashlist_new(64, sizeof(pkgdata));
 	state.queue[JT_DOWNLOAD] = sblist_new(sizeof(pkg_exec), 64);
