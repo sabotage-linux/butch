@@ -140,7 +140,7 @@ static void getconfig(pkgstate* state) {
 	stringptr_fromchar(getenv("LOGPATH"), &c->logdir);
 	
 	if(!c->arch.size) {
-		die(SPL("need to set $A to either x86_64 or i386!\n"));
+		die(SPL("need to set $A to your arch (i.e. x86_64, i386, arm, mips, ...)\n"));
 	}
 	if(!c->installroot.size) c->installroot = *(stringptr_copy(SPL("/")));
 	if(!c->pkgroot.size) c->pkgroot = *(stringptr_copy(SPL("/src")));
@@ -342,7 +342,7 @@ static pkgdata* packagelist_get(hashlist* list, stringptr* name, uint32_t hash) 
 	return NULL;
 }
 
-pkgdata* packagelist_add(hashlist* list, stringptr* name, uint32_t hash) {
+static pkgdata* packagelist_add(hashlist* list, stringptr* name, uint32_t hash) {
 	pkgdata pkg_empty;
 	memset(&pkg_empty, 0, sizeof(pkg_empty));
 	pkg_empty.name = stringptr_copy(name);
