@@ -3,24 +3,28 @@ if [[ -z "$VER" ]] ; then
 	echo set VER!
 	exit
 fi
+
+# running make once so the .rcb file gets populated
+make || exit 1
+
 me=`pwd`
 tempdir=/tmp/butch-0000
 tempdir_b=$tempdir/butch
 rm -rf $tempdir_b
 mkdir -p $tempdir_b
+
+# creating temporary Makefile
+cat butch.rcb | rcb2make butch > $tempdir/Makefile
+
 cd $tempdir_b
 git clone http://github.com/rofl0r/libulz lib
 git clone http://github.com/rofl0r/butch
+
+mv $tempdir/Makefile $tempdir_b/butch/
 cat << EOF > build.sh
 #!/bin/sh
-cd lib
-make
-mv lib/libulz.a ../butch
-cd ../butch
-if [ -z "\$CC" ] ; then
-	CC=cc
-fi
-\$CC -Wall -Wextra -g -O0 butch.c sha2/sha512.c sha2/sha2_variables.c -o butch -L. -lulz
+cd butch
+make -j$MAKE_THREADS
 EOF
 chmod +x build.sh
 rm -rf butch/.git
