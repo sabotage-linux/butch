@@ -33,6 +33,7 @@
 #include "../lib/include/fileparser.h"
 #include "../lib/include/iniparser.h"
 #include "../lib/include/filelib.h"
+#include "../lib/include/timelib.h"
 #include "../lib/include/macros.h"
 
 #include "sha2/sha2.h"
@@ -43,6 +44,9 @@
 #endif
 #ifndef NUM_BUILD_THREADS
 #define NUM_BUILD_THREADS 1
+#endif
+#ifndef SLEEP_MS
+#define SLEEP_MS 500
 #endif
 
 typedef enum {
@@ -827,7 +831,7 @@ int main(int argc, char** argv) {
 	print_info(&state);
 	prepare_slots(&state);
 	
-	while(process_queue(&state)) sleep(1);
+	while(process_queue(&state)) msleep(SLEEP_MS);
 	
 	int failed = stringptrlist_getsize(state.build_errors) != 0;
 	
