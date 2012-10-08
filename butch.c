@@ -42,7 +42,7 @@
 #define NUM_DL_THREADS 16
 #endif
 #ifndef NUM_BUILD_THREADS
-#define NUM_BUILD_THREADS 2
+#define NUM_BUILD_THREADS 1
 #endif
 
 typedef enum {
