@@ -38,8 +38,12 @@
 #include "sha2/sha2.h"
 #include "../lib/include/hashlist.h"
 
+#ifndef NUM_DL_THREADS
 #define NUM_DL_THREADS 16
+#endif
+#ifndef NUM_BUILD_THREADS
 #define NUM_BUILD_THREADS 2
+#endif
 
 typedef enum {
 	PKGC_NONE = 0,
