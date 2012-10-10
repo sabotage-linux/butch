@@ -416,11 +416,7 @@ end:
 //checks if filesize and/or sha512 matches, if used.
 static int verify_tarball(pkgstate* state, pkgdata* package) {
 	char buf[4096];
-	char* error;
-	SHA512_CTX ctx;
-	int fd;
-	uint64_t pos, len = 0, nread;
-	stringptr hash;
+	uint64_t len = 0;
 	get_tarball_filename(state, package, buf, sizeof(buf), 1);
 	if(package->filesize) {
 		len = getfilesize(buf);
@@ -432,6 +428,15 @@ static int verify_tarball(pkgstate* state, pkgdata* package) {
 			return 2;
 		}
 	}
+// testing the sha checksum can take *ages* on slow emulated CPUS.
+// you can turn it off once you know the tarballs are good.
+#ifndef DISABLE_CHECKSUM
+	stringptr hash;
+	int fd;
+	char* error;
+	SHA512_CTX ctx;
+	uint64_t pos, nread;
+
 	if(package->sha512) {
 		if(!len) len = getfilesize(buf);
 			
@@ -457,6 +462,7 @@ static int verify_tarball(pkgstate* state, pkgdata* package) {
 			return 4;
 		}
 	}
+#endif
 	return 0;
 }
 
