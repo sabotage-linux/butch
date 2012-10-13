@@ -300,8 +300,9 @@ static void get_installed_packages(pkgstate* state) {
 	log_perror("failed to open installed.dat!");
 }
 
-static int is_installed(stringptrlist* packages, stringptr* packagename) {
-	return stringptrlist_contains(packages, packagename);
+static int is_installed(pkgstate* state, stringptr* packagename) {
+	int ret = stringptrlist_contains(state->installed_packages, packagename);
+	return ret;
 }
 
 static int has_tarball(pkgstate* state, pkgdata* package) {
@@ -377,7 +378,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	
 	if(is_in_queue(packagename, queue)) goto end;
 	
-	if(!force && is_installed(state->installed_packages, packagename)) {
+	if(!force && is_installed(state, packagename)) {
 		ulz_fprintf(1, "package %s is already installed, skipping %s\n", packagename->ptr, queue_names[jt]);
 		goto end;
 	}
@@ -398,7 +399,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	if(
 		// if sizeof mirrors is 0, it is a meta package
 		(jt == JT_DOWNLOAD && stringptrlist_getsize(pkg->mirrors) && !has_tarball(state, pkg))
-		|| (jt == JT_BUILD && stringptrlist_getsize(pkg->buildscript))
+		|| (jt == JT_BUILD)
 	) {
 		add_queue(packagename, queue);
 	}
@@ -527,8 +528,15 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 
 	item->scripts.filename = stringptr_format("%s/%s_%s.sh", state->cfg.builddir.ptr, prefix, item->name->ptr);
 	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr); 
-	
+
 	config = make_config(&state->cfg);
+
+	if(ptype == JT_BUILD && !stringptrlist_getsize(data->buildscript)) {
+		/* execute empty script when pkg has no build section */
+		temp = stringptr_copy(SPL("#!/bin/sh\ntrue\n"));
+		goto write_it;
+	}
+
 	hastarball = get_tarball_filename(state, data, buf, sizeof(buf), 0);
 	
 	stringptr* buildscr = (ptype == JT_BUILD ? stringptrlist_tostring(data->buildscript) : SPL(""));
@@ -571,7 +579,8 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 		stringptr_free(temp); temp = temp2;
 	} else 
 		stringptr_free(buildscr);
-		
+	
+	write_it:
 	stringptr_tofile(item->scripts.filename->ptr, temp);
 	if(chmod(item->scripts.filename->ptr, 0775) == -1) die(SPL("error setting permission"));
 	stringptr_free(config);
@@ -612,7 +621,7 @@ static int has_all_deps(pkgstate* state, pkgdata* item) {
 	size_t i;
 	pkg_exec* dlitem;
 	for(i = 0; i < stringptrlist_getsize(item->deps); i++)
-		if(!is_installed(state->installed_packages, stringptrlist_get(item->deps, i))) return 0;
+		if(!is_installed(state, stringptrlist_get(item->deps, i))) return 0;
 
 	sblist_iter(state->queue[JT_DOWNLOAD], dlitem) {
 		if(EQ(dlitem->name, item->name)) {
