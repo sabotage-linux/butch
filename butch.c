@@ -851,8 +851,10 @@ int main(int argc, char** argv) {
 	
 	int failed = stringptrlist_getsize(state.build_errors) != 0;
 	
-	if(!failed && (!(queue_empty(state.queue[JT_DOWNLOAD])) || !(queue_empty(state.queue[JT_BUILD]))))
+	if(!failed && (!(queue_empty(state.queue[JT_DOWNLOAD])) || !(queue_empty(state.queue[JT_BUILD])))) {
 		ulz_fprintf(2, "[WARNING] circular reference detected!\n");
+		failed = 1;
+	}
 	
 	// clean up ...
 	
