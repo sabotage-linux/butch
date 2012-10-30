@@ -97,17 +97,18 @@ typedef struct {
 
 typedef enum {
 	JT_DOWNLOAD = 0,
-	JT_BUILD
+	JT_BUILD,
+	JT_MAX,
 } jobtype;
 
 typedef struct {
 	pkgconfig cfg;
 	stringptrlist* installed_packages;
 	hashlist* package_list;
-	sblist* queue[JT_BUILD + 1];
-	stringptrlist* checked[JT_BUILD + 1];
+	sblist* queue[JT_MAX];
+	stringptrlist* checked[JT_MAX];
 	stringptrlist* build_errors;
-	procslots slots[JT_BUILD + 1];
+	procslots slots[JT_MAX];
 	char builddir_buf[1024];
 } pkgstate;
 
