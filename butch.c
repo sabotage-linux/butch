@@ -108,6 +108,7 @@ typedef struct {
 	sblist* queue[JT_MAX];
 	stringptrlist* checked[JT_MAX];
 	stringptrlist* build_errors;
+	stringptrlist* skippkgs;
 	procslots slots[JT_MAX];
 	char builddir_buf[1024];
 } pkgstate;
@@ -137,6 +138,28 @@ static void syntax(void) {
 	"\t\tunless they're not already in $C\n"
 	"\n"
 	));
+}
+
+static ptrdiff_t in_skip_list(pkgstate *state, stringptr* pkg) {
+	stringptr* tmp;
+	if(!state->skippkgs) return -1;
+	sblist_iter_counter(state->skippkgs, i, tmp) {
+		if(EQ(tmp, pkg)) return i;
+	}
+	return -1;
+}
+
+/* entries in skiplist will be treated as if they failed to build
+ * this allows to skip over failing packages and their dependencies
+ * without the need to try to build them again. */
+static void getconfig_skip(pkgstate* state) {
+	stringptr tmp;
+	state->skippkgs = NULL;
+	stringptr_fromchar(getenv("BUTCH_SKIPLIST"), &tmp);
+	if(tmp.size) {
+		state->skippkgs = stringptr_splitc(&tmp, ':');
+		stringptrlist_dup_entries(state->skippkgs);
+	}
 }
 
 static void getconfig(pkgstate* state) {
@@ -176,6 +199,7 @@ static void getconfig(pkgstate* state) {
 	}
 	
 #undef check_access
+	getconfig_skip(state);
 }
 
 static int get_tarball_filename(pkgstate* state, pkgdata* package, char* buf, size_t bufsize, int with_path) {
@@ -652,6 +676,14 @@ static void fill_slots(jobtype ptype, pkgstate* state) {
 	for(i = 0; *slots_avail && i < sblist_getsize(queue); i++) {
 		item = sblist_get(queue, i);
 		if(item->pid == PID_WAITING) {
+			ptrdiff_t skipidx;
+			if((skipidx = in_skip_list(state, item->name)) >= 0) {
+				// FIXME check if we need to free the stringptr member too (likely)
+				sblist_delete(state->skippkgs, skipidx);
+				item->pid = PID_FINISHED;
+				continue;
+			}
+			
 			pkg = packagelist_get(state->package_list, item->name, stringptr_hash(item->name));
 			if(ptype == JT_DOWNLOAD || has_all_deps(state, pkg)) {
 				if(ptype == JT_BUILD && !pkg->verified && stringptrlist_getsize(pkg->mirrors)) {
@@ -851,10 +883,14 @@ int main(int argc, char** argv) {
 	
 	int failed = stringptrlist_getsize(state.build_errors) != 0;
 	
+	if(state.skippkgs) goto skipfailure_check;
+	
 	if(!failed && (!(queue_empty(state.queue[JT_DOWNLOAD])) || !(queue_empty(state.queue[JT_BUILD])))) {
 		ulz_fprintf(2, "[WARNING] circular reference detected!\n");
 		failed = 1;
 	}
+	
+	skipfailure_check:
 	
 	// clean up ...
 	
@@ -862,6 +898,8 @@ int main(int argc, char** argv) {
 	stringptrlist_freeall(state.checked[JT_DOWNLOAD]);
 	stringptrlist_freeall(state.checked[JT_BUILD]);
 	stringptrlist_freeall(state.installed_packages);
+	if(state.skippkgs)
+		stringptrlist_freeall(state.skippkgs);
 	
 	hashlist_iterator hit;
 	hashlist_iterator_init(&hit);
