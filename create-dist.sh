@@ -4,6 +4,11 @@ if [[ -z "$VER" ]] ; then
 	exit
 fi
 
+librepo=http://github.com/rofl0r/libulz
+butchrepo=http://github.com/rofl0r/butch
+librepo=~/cdev/cdev/lib
+butchrepo=~/cdev/cdev/pkg
+
 # running make once so the .rcb file gets populated
 make || exit 1
 
@@ -17,8 +22,8 @@ mkdir -p $tempdir_b
 cat butch.rcb | rcb2make butch > $tempdir/Makefile
 
 cd $tempdir_b
-git clone http://github.com/rofl0r/libulz lib
-git clone http://github.com/rofl0r/butch
+git clone "$librepo" lib
+git clone "$butchrepo" butch
 
 mv $tempdir/Makefile $tempdir_b/butch/
 cat << EOF > build.sh
