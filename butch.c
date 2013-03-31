@@ -101,9 +101,14 @@ typedef enum {
 	JT_MAX,
 } jobtype;
 
+struct installed_packages {
+	stringptrlist* names;
+	stringptrlist* hashes;
+};
+
 typedef struct {
 	pkgconfig cfg;
-	stringptrlist* installed_packages;
+	struct installed_packages installed_packages;
 	hashlist* package_list;
 	sblist* queue[JT_MAX];
 	stringptrlist* checked[JT_MAX];
@@ -322,7 +327,7 @@ static void get_installed_packages(pkgstate* state) {
 	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
 	if(fileparser_open(&f, buf)) goto err;
 	while(!fileparser_readline(&f) && !fileparser_getline(&f, &line) && line.size) {
-		stringptrlist_add_strdup(state->installed_packages, &line);
+		stringptrlist_add_strdup(state->installed_packages.names, &line);
 	}
 	fileparser_close(&f);
 	return;
@@ -331,7 +336,7 @@ static void get_installed_packages(pkgstate* state) {
 }
 
 static int is_installed(pkgstate* state, stringptr* packagename) {
-	return stringptrlist_contains(state->installed_packages, packagename);
+	return stringptrlist_contains(state->installed_packages.names, packagename);
 }
 
 static int has_tarball(pkgstate* state, pkgdata* package) {
@@ -730,7 +735,7 @@ static void write_installed_dat(pkgstate* state) {
 	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
 	ulz_snprintf(bak, sizeof(bak), "%s/pkg/installed.bak", state->cfg.pkgroot.ptr);
 	if(rename(buf, bak) == -1) die_errno("trying to rename installed.dat to installed.bak failed");
-	if(!stringptrlist_tofile(state->installed_packages, buf, 0664)) {
+	if(!stringptrlist_tofile(state->installed_packages.names, buf, 0664)) {
 		rename(bak, buf);
 		die(SPL("error writing to installed.dat!"));
 	}
@@ -739,7 +744,7 @@ static void write_installed_dat(pkgstate* state) {
 
 static void mark_finished(pkgstate* state, stringptr* name) {
 	if(!is_installed(state, name)) {
-		stringptrlist_add_strdup(state->installed_packages, name);
+		stringptrlist_add_strdup(state->installed_packages.names, name);
 		write_installed_dat(state);
 	}
 }
@@ -859,7 +864,7 @@ int main(int argc, char** argv) {
 	srand(time(0));
 	
 	getconfig(&state);
-	state.installed_packages = stringptrlist_new(64);
+	state.installed_packages.names = stringptrlist_new(64);
 	get_installed_packages(&state);
 	
 	state.package_list = hashlist_new(64, sizeof(pkgdata));
@@ -905,7 +910,7 @@ int main(int argc, char** argv) {
 	stringptrlist_freeall(state.build_errors);
 	stringptrlist_freeall(state.checked[JT_DOWNLOAD]);
 	stringptrlist_freeall(state.checked[JT_BUILD]);
-	stringptrlist_freeall(state.installed_packages);
+	stringptrlist_freeall(state.installed_packages.names);
 	if(state.skippkgs)
 		stringptrlist_freeall(state.skippkgs);
 	
