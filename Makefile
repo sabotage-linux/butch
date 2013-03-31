@@ -1,7 +1,7 @@
 MAINFILE=butch.c
 
 CFLAGS_OWN=-Wall -D_XOPEN_SOURCE=700
-CFLAGS_DBG=-g -O0
+CFLAGS_DBG=-g3 -O0
 CFLAGS_OPT=-s -Os
 
 -include config.mak
