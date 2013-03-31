@@ -54,7 +54,6 @@ typedef enum {
 	PKGC_INSTALL,
 	PKGC_REBUILD,
 	PKGC_PREFETCH,
-	PKGC_REBUILD_ALL,
 } pkgcommands;
 
 typedef struct {
@@ -126,14 +125,12 @@ static void die(stringptr* message) {
 
 static void syntax(void) {
 	die(SPL("syntax: butch command options\n\n"
-	"commands: install, rebuild, rebuildall, prefetch\n\n"
+	"commands: install, rebuild, prefetch\n\n"
 	"pass an arbitrary number of package names as options\n\n"
 	"\tinstall: installs one or more packages when they're not yet installed\n"
 	"\t\t(list of installed packages is kept in pkg/installed.dat)\n"
 	"\trebuild: installs one or more packages even when they're already\n"
 	"\t\tinstalled\n"
-	"\trebuildall: installs one or more packages even when they're already\n"
-	"\t\tinstalled, including all dependencies\n"
 	"\tprefetch: only download the given package and all of its dependencies,\n"
 	"\t\tunless they're not already in $C\n"
 	"\n"
@@ -418,7 +415,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	}
 	
 	for(i = 0; i < stringptrlist_getsize(pkg->deps); i++) {
-		queue_package(state, stringptrlist_get(pkg->deps, i), jt, force == -1 ? -1 : 0); // omg recursion
+		queue_package(state, stringptrlist_get(pkg->deps, i), jt, 0); // omg recursion
 	}
 	
 	if(
@@ -832,7 +829,7 @@ int main(int argc, char** argv) {
 	
 	const char* opt_strings[] = {
 		[PKGC_INSTALL] = "install", [PKGC_REBUILD] = "rebuild",
-		[PKGC_REBUILD_ALL] = "rebuildall", [PKGC_PREFETCH] = "prefetch",
+		[PKGC_PREFETCH] = "prefetch",
 	};
 	
 	if(argc < 3) syntax();
@@ -857,7 +854,7 @@ int main(int argc, char** argv) {
 	state.checked[JT_BUILD] = stringptrlist_new(64);
 	
 	for(i = 2; i < argc; i++) {
-		const int force[] = { [PKGC_REBUILD] = 1,  [PKGC_REBUILD_ALL] = -1, [PKGC_INSTALL] = 0 };
+		const int force[] = { [PKGC_REBUILD] = 1,  [PKGC_INSTALL] = 0 };
 		stringptr curr;
 		// allow something like pkg/packagename to be passed
 		char* pkg_name = strrchr(argv[i], '/');
