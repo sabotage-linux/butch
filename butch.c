@@ -721,7 +721,7 @@ static void print_info(pkgstate* state) {
 
 static void mark_finished(pkgstate* state, stringptr* name) {
 	char buf[256];
-	if(!stringptrlist_contains(state->installed_packages, name)) {
+	if(!is_installed(state, name)) {
 		ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
 		stringptrlist_add_strdup(state->installed_packages, name);
 		int fd = open(buf, O_WRONLY | O_CREAT | O_APPEND, 0664);
