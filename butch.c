@@ -124,6 +124,12 @@ static void die(stringptr* message) {
 	exit(1);
 }
 
+__attribute__((noreturn))
+static void die_errno(const char* msg) {
+	log_puterror(2, msg);
+	exit(1);
+}
+
 static void syntax(void) {
 	die(SPL("syntax: butch command options\n\n"
 	"commands: install, rebuild, prefetch\n\n"
@@ -718,16 +724,23 @@ static void print_info(pkgstate* state) {
 	print_queue(state, JT_BUILD);
 }
 
-static void mark_finished(pkgstate* state, stringptr* name) {
+static void write_installed_dat(pkgstate* state) {
 	char buf[256];
+	char bak[256];
+	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
+	ulz_snprintf(bak, sizeof(bak), "%s/pkg/installed.bak", state->cfg.pkgroot.ptr);
+	if(rename(buf, bak) == -1) die_errno("trying to rename installed.dat to installed.bak failed");
+	if(!stringptrlist_tofile(state->installed_packages, buf, 0664)) {
+		rename(bak, buf);
+		die(SPL("error writing to installed.dat!"));
+	}
+	unlink(bak);
+}
+
+static void mark_finished(pkgstate* state, stringptr* name) {
 	if(!is_installed(state, name)) {
-		ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
 		stringptrlist_add_strdup(state->installed_packages, name);
-		int fd = open(buf, O_WRONLY | O_CREAT | O_APPEND, 0664);
-		if(fd == -1) die(SPL("error couldnt write to installed.dat!"));
-		write(fd, name->ptr, name->size);
-		write(fd, "\n", 1);
-		close(fd);
+		write_installed_dat(state);
 	}
 }
 
