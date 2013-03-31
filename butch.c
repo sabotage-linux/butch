@@ -354,10 +354,13 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 	die(SPL("package not existing"));
 }
 
+static void write_installed_dat(pkgstate* state);
+
 static void get_installed_packages(pkgstate* state) {
 	fileparser f;
 	char buf[256];
 	stringptr line;
+	int oldformat = 0;
 	
 	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
 	if(fileparser_open(&f, buf)) goto err;
@@ -370,6 +373,7 @@ static void get_installed_packages(pkgstate* state) {
 		stringptrlist_add_strdup(state->installed_packages.names, temp);
 		if(l == line.size) {
 			/* old installed.dat format containing only package names */
+			oldformat = 1;
 			get_package_hash(state, temp, buf);
 			temp = SPMAKE(buf, 128);
 		} else {
@@ -379,6 +383,7 @@ static void get_installed_packages(pkgstate* state) {
 		stringptrlist_add_strdup(state->installed_packages.hashes, temp);
 	}
 	fileparser_close(&f);
+	if(oldformat) write_installed_dat(state);
 	return;
 	err:
 	log_perror("failed to open installed.dat!");
