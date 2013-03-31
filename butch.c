@@ -25,6 +25,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <errno.h>
+#include <assert.h>
 
 #include "../lib/include/stringptrlist.h"
 #include "../lib/include/stringptr.h"
@@ -232,12 +233,46 @@ static void strip_fileext(stringptr* s) {
 	}
 }
 
+/* outbuf must be at least 128+1 bytes */
+static int sha512_hash(const char* filename, char *outbuf) {
+	int fd;
+	SHA512_CTX ctx;
+	ssize_t nread;
+	char buf[4*1024];
+	int success = 0;
+		
+	fd = open(filename, O_RDONLY);
+	if(fd == -1) return 0;
+	SHA512_Init(&ctx);
+	while(1) {
+		nread = read(fd, buf, sizeof(buf));
+		if(nread < 0) goto err;
+		else if(nread == 0) break;
+		SHA512_Update(&ctx, (const uint8_t*) buf, nread);
+	}
+	success = 1;
+	err:
+	close(fd);
+	SHA512_End(&ctx, outbuf);
+	return success;
+}
+
+static void get_package_filename(pkgstate *state, stringptr* packagename, char* buf, size_t buflen) {
+	ulz_snprintf(buf, buflen, "%s/pkg/%s", state->cfg.pkgroot.ptr, packagename->ptr);
+}
+
+static int get_package_hash(pkgstate *state, stringptr* packagename, char* outbuf) {
+	char buf[256];
+	get_package_filename(state, packagename, buf, sizeof(buf));
+	return sha512_hash(buf, outbuf);
+}
+
 // contract: out is already zeroed and contains only name
 static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdata* out) {
-	ini_section sec;
 	char buf[256];
-	ulz_snprintf(buf, sizeof(buf), "%s/pkg/%s", state->cfg.pkgroot.ptr, packagename->ptr);
-	
+	get_package_filename(state, packagename, buf, sizeof(buf));
+
+	ini_section sec;
 	stringptr* fc = stringptr_fromfile(buf);
 	stringptr val;
 	
@@ -327,7 +362,21 @@ static void get_installed_packages(pkgstate* state) {
 	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
 	if(fileparser_open(&f, buf)) goto err;
 	while(!fileparser_readline(&f) && !fileparser_getline(&f, &line) && line.size) {
-		stringptrlist_add_strdup(state->installed_packages.names, &line);
+		char* p = line.ptr;
+		while(*p && *p != ' ') p++;
+		*p = 0;
+		size_t l = (size_t) p - (size_t) line.ptr;
+		stringptr *temp = SPMAKE(line.ptr, l);
+		stringptrlist_add_strdup(state->installed_packages.names, temp);
+		if(l == line.size) {
+			/* old installed.dat format containing only package names */
+			get_package_hash(state, temp, buf);
+			temp = SPMAKE(buf, 128);
+		} else {
+			p++, l++;
+			temp = SPMAKE(p, line.size - l);
+		}
+		stringptrlist_add_strdup(state->installed_packages.hashes, temp);
 	}
 	fileparser_close(&f);
 	return;
@@ -445,16 +494,16 @@ end:
 //return 0 on success.
 //checks if filesize and/or sha512 matches, if used.
 static int verify_tarball(pkgstate* state, pkgdata* package) {
-	char buf[4096];
+	char tarfile[256];
 	uint64_t len = 0;
-	get_tarball_filename(state, package, buf, sizeof(buf), 1);
+	get_tarball_filename(state, package, tarfile, sizeof(tarfile), 1);
 	if(package->filesize) {
-		len = getfilesize(buf);
+		len = getfilesize(tarfile);
 		if(len < package->filesize) {
-			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" filesize too small!"), VNIL);
+			log_put(2, VARISL("WARNING: "), VARIC(tarfile), VARISL(" filesize too small!"), VNIL);
 			return 1;
 		} else if (len > package->filesize) {
-			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" filesize too big!"), VNIL);
+			log_put(2, VARISL("WARNING: "), VARIC(tarfile), VARISL(" filesize too big!"), VNIL);
 			return 2;
 		}
 	}
@@ -462,30 +511,16 @@ static int verify_tarball(pkgstate* state, pkgdata* package) {
 // you can turn it off once you know the tarballs are good.
 #ifndef DISABLE_CHECKSUM
 	stringptr hash;
-	int fd;
+	char hashbuf[256];
 	char* error;
-	SHA512_CTX ctx;
-	uint64_t pos, nread;
-
 	if(package->sha512) {
-		if(!len) len = getfilesize(buf);
-			
-		fd = open(buf, O_RDONLY);
-		if(fd == -1) {
+		if(!sha512_hash(tarfile, hashbuf)) {
 			error = strerror(errno);
-			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" failed to open: "), VARIC(error), VNIL);
+			log_put(2, VARISL("WARNING: "), VARIC(tarfile), VARISL(" failed to open: "), VARIC(error), VNIL);
 			return 3;
 		}
-		SHA512_Init(&ctx);
-		pos = 0;
-		while(pos < len) {
-			nread = read(fd, buf, sizeof(buf));
-			SHA512_Update(&ctx, (const uint8_t*) buf, nread);
-			pos += nread;
-		}
-		close(fd);
-		SHA512_End(&ctx, (char*) buf);
-		hash.ptr = buf; hash.size = strlen(buf);
+		hash.ptr = hashbuf; hash.size = 128;
+		assert(hash.ptr[128] == 0 && hash.ptr[127] != 0);
 		if(!EQ(&hash, package->sha512)) {
 			log_put(2, VARISL("WARNING: "), VARIS(package->name), VARISL(" sha512 mismatch, got "), 
 				VARIS(&hash), VARISL(", expected "), VARIS(package->sha512), VNIL);
@@ -735,17 +770,60 @@ static void write_installed_dat(pkgstate* state) {
 	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
 	ulz_snprintf(bak, sizeof(bak), "%s/pkg/installed.bak", state->cfg.pkgroot.ptr);
 	if(rename(buf, bak) == -1) die_errno("trying to rename installed.dat to installed.bak failed");
-	if(!stringptrlist_tofile(state->installed_packages.names, buf, 0664)) {
-		rename(bak, buf);
-		die(SPL("error writing to installed.dat!"));
+	int fd = open(buf, O_CREAT | O_TRUNC | O_RDWR, 0664);
+	if(fd == -1) goto err;
+	size_t i;
+	assert(sblist_getsize(state->installed_packages.names) == sblist_getsize(state->installed_packages.hashes));
+	for(i = 0; i < sblist_getsize(state->installed_packages.names); i++) {
+		stringptr* s = stringptrlist_get(state->installed_packages.names, i);
+		if(write(fd, s->ptr, s->size) != s->size) goto err;
+		if(write(fd, " ", 1) != 1) goto err;
+		s = stringptrlist_get(state->installed_packages.hashes, i);
+		if(write(fd, s->ptr, s->size) != s->size) goto err;
+		if(write(fd, "\n", 1) != 1) goto err;
 	}
+	close(fd);
 	unlink(bak);
+	return;
+	err:
+	rename(bak, buf);
+	die(SPL("error writing to installed.dat"));
 }
 
 static void mark_finished(pkgstate* state, stringptr* name) {
-	if(!is_installed(state, name)) {
+	char hash[256];
+	if(!get_package_hash(state, name, hash)) log_puterror(2, "failed to get pkg hash");
+	ssize_t idx = stringptrlist_find(state->installed_packages.names, name);
+	if(idx == -1) {
 		stringptrlist_add_strdup(state->installed_packages.names, name);
+		stringptrlist_add_strdup(state->installed_packages.hashes, SPMAKE(hash, 128));
 		write_installed_dat(state);
+	} else { /* update hash */
+		// since we remove hashes and names from the installed list, this should never be needed */
+		assert(EQ(stringptrlist_get(state->installed_packages.hashes, idx), SPMAKE(hash, 128)));
+		if(0) {
+			stringptr* e = stringptrlist_get(state->installed_packages.hashes, idx);
+			free(e->ptr);
+			char* e2 = stringptr_strdup(SPMAKE(hash, 128));
+			stringptrlist_set(state->installed_packages.hashes, idx, e2, 128);
+		}
+	}
+}
+
+static void prepare_update(pkgstate* state, stringptrlist* packages2install) {
+	char hash[256];
+	size_t i;
+	for(i = 0; i < sblist_getsize(state->installed_packages.names);) {
+		stringptr* name = stringptrlist_get(state->installed_packages.names, i);
+		if(!get_package_hash(state, name, hash)) log_puterror(2, "failed to get pkg hash");
+		stringptr* h = stringptrlist_get(state->installed_packages.hashes, i);
+		stringptr* h2 = SPMAKE(hash, 128);
+		if(!EQ(h, h2)) {
+			stringptrlist_add(packages2install, name->ptr, name->size);
+			sblist_delete(state->installed_packages.names, i);
+			sblist_delete(state->installed_packages.hashes, i);
+			free(h->ptr);
+		} else i++;
 	}
 }
 
@@ -865,6 +943,7 @@ int main(int argc, char** argv) {
 	
 	getconfig(&state);
 	state.installed_packages.names = stringptrlist_new(64);
+	state.installed_packages.hashes = stringptrlist_new(64);
 	get_installed_packages(&state);
 	
 	state.package_list = hashlist_new(64, sizeof(pkgdata));
@@ -874,8 +953,12 @@ int main(int argc, char** argv) {
 	state.checked[JT_DOWNLOAD] = stringptrlist_new(64);
 	state.checked[JT_BUILD] = stringptrlist_new(64);
 	
-	for(i = 2; i < argc; i++) {
-		const int force[] = { [PKGC_REBUILD] = 1,  [PKGC_INSTALL] = 0 };
+	stringptrlist* packages2install = stringptrlist_new(16);
+	
+	if(mode == PKGC_UPDATE) {
+		prepare_update(&state, packages2install);
+		mode = PKGC_INSTALL;
+	} else for(i = 2; i < argc; i++) {
 		stringptr curr;
 		// allow something like pkg/packagename to be passed
 		char* pkg_name = strrchr(argv[i], '/');
@@ -884,11 +967,18 @@ int main(int argc, char** argv) {
 		else pkg_name++;
 		
 		stringptr_fromchar(pkg_name, &curr);
-		
-		queue_package(&state, &curr, JT_DOWNLOAD, force[mode]);
-		if(mode != PKGC_PREFETCH) 
-			queue_package(&state, &curr, JT_BUILD, force[mode]);
+		stringptrlist_add_strdup(packages2install, &curr);
 	}
+	
+	stringptr *curr_pkg;
+	sblist_iter(packages2install, curr_pkg) {
+		const int force[] = { [PKGC_REBUILD] = 1,  [PKGC_INSTALL] = 0 };
+		queue_package(&state, curr_pkg, JT_DOWNLOAD, force[mode]);
+		if(mode != PKGC_PREFETCH) 
+			queue_package(&state, curr_pkg, JT_BUILD, force[mode]);
+	}
+	stringptrlist_freeall(packages2install);
+	
 	print_info(&state);
 	prepare_slots(&state);
 	
@@ -906,11 +996,11 @@ int main(int argc, char** argv) {
 	skipfailure_check:
 	
 	// clean up ...
-	
 	stringptrlist_freeall(state.build_errors);
 	stringptrlist_freeall(state.checked[JT_DOWNLOAD]);
 	stringptrlist_freeall(state.checked[JT_BUILD]);
 	stringptrlist_freeall(state.installed_packages.names);
+	stringptrlist_freeall(state.installed_packages.hashes);
 	if(state.skippkgs)
 		stringptrlist_freeall(state.skippkgs);
 	
