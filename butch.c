@@ -138,7 +138,7 @@ static void die_errno(const char* msg) {
 
 static void syntax(void) {
 	die(SPL("syntax: butch command options\n\n"
-	"commands: install, rebuild, prefetch\n\n"
+	"commands: install, rebuild, prefetch, update\n\n"
 	"pass an arbitrary number of package names as options\n\n"
 	"\tinstall: installs one or more packages when they're not yet installed\n"
 	"\t\t(list of installed packages is kept in pkg/installed.dat)\n"
