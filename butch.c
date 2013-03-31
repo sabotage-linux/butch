@@ -931,13 +931,14 @@ int main(int argc, char** argv) {
 		[PKGC_UPDATE] = "update",
 	};
 	
-	if(argc < 3) syntax();
+	if(argc < 2) syntax();
 	
 	for(i = PKGC_NONE + 1; (unsigned) i < ARRAY_SIZE(opt_strings); i++)
 		if(!strcmp(argv[1], opt_strings[i]))
 			mode = (pkgcommands) i;
 
-	if(mode == PKGC_NONE) syntax();
+	if(mode == PKGC_NONE || (mode != PKGC_UPDATE && argc < 3) || (mode == PKGC_UPDATE && argc > 2))
+		syntax();
 	
 	srand(time(0));
 	
