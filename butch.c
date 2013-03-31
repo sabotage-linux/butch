@@ -825,9 +825,9 @@ static void prepare_update(pkgstate* state, stringptrlist* packages2install) {
 		stringptr* h2 = SPMAKE(hash, 128);
 		if(!EQ(h, h2)) {
 			stringptrlist_add(packages2install, name->ptr, name->size);
+			free(h->ptr);
 			sblist_delete(state->installed_packages.names, i);
 			sblist_delete(state->installed_packages.hashes, i);
-			free(h->ptr);
 		} else i++;
 	}
 }
