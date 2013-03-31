@@ -320,19 +320,10 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 }
 
 static void get_installed_packages(pkgstate* state) {
-	fileparser f;
 	char buf[256];
-	stringptr line;
-	
 	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
-	if(fileparser_open(&f, buf)) goto err;
-	while(!fileparser_readline(&f) && !fileparser_getline(&f, &line) && line.size) {
-		stringptrlist_add_strdup(state->installed_packages.names, &line);
-	}
-	fileparser_close(&f);
-	return;
-	err:
-	log_perror("failed to open installed.dat!");
+	if(!stringptrlist_fromfile(state->installed_packages.names, buf)) 
+		log_perror("failed to open installed.dat!");
 }
 
 static int is_installed(pkgstate* state, stringptr* packagename) {
