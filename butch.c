@@ -325,8 +325,7 @@ static void get_installed_packages(pkgstate* state) {
 }
 
 static int is_installed(pkgstate* state, stringptr* packagename) {
-	int ret = stringptrlist_contains(state->installed_packages, packagename);
-	return ret;
+	return stringptrlist_contains(state->installed_packages, packagename);
 }
 
 static int has_tarball(pkgstate* state, pkgdata* package) {
