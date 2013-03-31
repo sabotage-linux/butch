@@ -154,7 +154,7 @@ static ptrdiff_t in_skip_list(pkgstate *state, stringptr* pkg) {
  * without the need to try to build them again. */
 static void getconfig_skip(pkgstate* state) {
 	stringptr tmp;
-	state->skippkgs = NULL;
+	state->skippkgs = 0;
 	stringptr_fromchar(getenv("BUTCH_SKIPLIST"), &tmp);
 	if(tmp.size) {
 		state->skippkgs = stringptr_splitc(&tmp, ':');
@@ -181,7 +181,7 @@ static void getconfig(pkgstate* state) {
 	if(!c->logdir.size) c->logdir = *(stringptr_copy(SPL("/src/logs")));
 	
 #define check_access(X) if(access(c->X.ptr, W_OK) == -1) { \
-		log_put(2, VARISL("cannot access "), VARISL(#X), NULL); \
+		log_put(2, VARISL("cannot access "), VARISL(#X), VNIL); \
 		log_perror(c->X.ptr); \
 		die(SPL("check your environment vars, if the directory exists and that you have write perm (may need root)")); \
 	}
@@ -259,7 +259,7 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 			strip_fileext(&fe);
 		} else {
 			fe.size = 0;
-			fe.ptr = NULL;
+			fe.ptr = 0;
 		}
 		out->tardir = stringptr_copy(&fe);
 	}
@@ -268,7 +268,7 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 	if(val.size)
 		out->sha512 = stringptr_copy(&val);
 	else
-		out->sha512 = NULL;
+		out->sha512 = 0;
 	
 	iniparser_getvalue(ini, &sec, SPL("filesize"), &val);
 	if(val.size)
@@ -373,7 +373,7 @@ static pkgdata* packagelist_get(hashlist* list, stringptr* name, uint32_t hash) 
 				return result;
 		}
 	}
-	return NULL;
+	return 0;
 }
 
 static pkgdata* packagelist_add(hashlist* list, stringptr* name, uint32_t hash) {
@@ -442,10 +442,10 @@ static int verify_tarball(pkgstate* state, pkgdata* package) {
 	if(package->filesize) {
 		len = getfilesize(buf);
 		if(len < package->filesize) {
-			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" filesize too small!"), NULL);
+			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" filesize too small!"), VNIL);
 			return 1;
 		} else if (len > package->filesize) {
-			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" filesize too big!"), NULL);
+			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" filesize too big!"), VNIL);
 			return 2;
 		}
 	}
@@ -464,7 +464,7 @@ static int verify_tarball(pkgstate* state, pkgdata* package) {
 		fd = open(buf, O_RDONLY);
 		if(fd == -1) {
 			error = strerror(errno);
-			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" failed to open: "), VARIC(error), NULL);
+			log_put(2, VARISL("WARNING: "), VARIC(buf), VARISL(" failed to open: "), VARIC(error), VNIL);
 			return 3;
 		}
 		SHA512_Init(&ctx);
@@ -479,7 +479,7 @@ static int verify_tarball(pkgstate* state, pkgdata* package) {
 		hash.ptr = buf; hash.size = strlen(buf);
 		if(!EQ(&hash, package->sha512)) {
 			log_put(2, VARISL("WARNING: "), VARIS(package->name), VARISL(" sha512 mismatch, got "), 
-				VARIS(&hash), VARISL(", expected "), VARIS(package->sha512), NULL);
+				VARIS(&hash), VARISL(", expected "), VARIS(package->sha512), VNIL);
 			return 4;
 		}
 	}
@@ -504,7 +504,7 @@ static stringptr* make_config(pkgconfig* cfg) {
 		SPL("export K="),
 		&cfg->keep,
 		SPL("\n"),
-		NULL);
+		SPNIL);
 	return result;
 }
 
@@ -615,10 +615,10 @@ static void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdat
 	char* arr[2];
 	create_script(ptype, state, item, data);
 	log_timestamp(1);
-	log_put(1, VARICC(lt_msgs[ptype]), VARIS(item->name), VARISL(" ("), VARIS(item->scripts.filename), VARISL(") -> "), VARIS(item->scripts.stdoutfn), NULL);
+	log_put(1, VARICC(lt_msgs[ptype]), VARIS(item->name), VARISL(" ("), VARIS(item->scripts.filename), VARISL(") -> "), VARIS(item->scripts.stdoutfn), VNIL);
 
 	arr[0] = item->scripts.filename->ptr;
-	arr[1] = NULL;
+	arr[1] = 0;
 	
 	posix_spawn_file_actions_init(&item->fa);
 	posix_spawn_file_actions_addclose(&item->fa, 0);
@@ -627,7 +627,7 @@ static void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdat
 	posix_spawn_file_actions_addopen(&item->fa, 0, "/dev/null", O_RDONLY, 0);
 	posix_spawn_file_actions_addopen(&item->fa, 1, item->scripts.stdoutfn->ptr, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 	posix_spawn_file_actions_adddup2(&item->fa, 1, 2);
-	int ret = posix_spawnp(&item->pid, arr[0], &item->fa, NULL, arr, environ);
+	int ret = posix_spawnp(&item->pid, arr[0], &item->fa, 0, arr, environ);
 	if(ret == -1) {
 		log_perror("posix_spawn");
 		die(SPL(""));
@@ -683,7 +683,7 @@ static void fill_slots(jobtype ptype, pkgstate* state) {
 			if(ptype == JT_DOWNLOAD || has_all_deps(state, pkg)) {
 				if(ptype == JT_BUILD && !pkg->verified && stringptrlist_getsize(pkg->mirrors)) {
 					if (! (pkg->verified = !(verify_tarball(state, pkg)))) {
-						log_put(2, VARISL("WARNING: "), VARIS(item->name), VARISL(" failed to verify! please delete its tarball and retry downloading it."), NULL);
+						log_put(2, VARISL("WARNING: "), VARIS(item->name), VARISL(" failed to verify! please delete its tarball and retry downloading it."), VNIL);
 						continue;
 					}
 				}
@@ -708,7 +708,7 @@ static void print_queue(pkgstate* state, jobtype jt) {
 	const char *queuename = queue_names[jt];
 	pkg_exec* listitem;
 	
-	log_put(1, VARISL("*** "), VARICC(queuename), VARISL("queue ***"), NULL);
+	log_put(1, VARISL("*** "), VARICC(queuename), VARISL("queue ***"), VNIL);
 	sblist_iter(queue, listitem) {
 		log_puts(1, listitem->name);
 		log_putln(1);
@@ -738,7 +738,7 @@ static void warn_errors(pkgstate* state) {
 	stringptr* candidate;
 	for(i = 0; i < stringptrlist_getsize(state->build_errors); i++) {
 		candidate = stringptrlist_get(state->build_errors, i);
-		log_put(2, VARISL("WARNING: "), VARIS(candidate), VARISL(" failed to build! wait for other jobs to finish."), NULL);
+		log_put(2, VARISL("WARNING: "), VARIS(candidate), VARISL(" failed to build! wait for other jobs to finish."), VNIL);
 	}
 }
 
@@ -772,7 +772,7 @@ static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event
 				ret = verify_tarball(state, pkg);
 				pkg->verified = !ret;
 				if(ret == 1) { // download too small, retry...
-					log_put(2, VARISL("retrying too short download of "), VARIS(listitem->name), NULL);
+					log_put(2, VARISL("retrying too short download of "), VARIS(listitem->name), VNIL);
 					goto retry;
 				} else {
 					// do not retry on success, hash mismatch or too big file.
@@ -784,7 +784,7 @@ static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event
 			}
 		} else {
 			if(jt == JT_DOWNLOAD) {
-				log_put(2, VARISL("got error "), VARII(WEXITSTATUS(exitstatus)), VARISL(" from download script of "), VARIS(listitem->name) ,VARISL(", retrying"), NULL);
+				log_put(2, VARISL("got error "), VARII(WEXITSTATUS(exitstatus)), VARISL(" from download script of "), VARIS(listitem->name) ,VARISL(", retrying"), VNIL);
 retry:
 				listitem->pid = PID_WAITING;
 			} else {
@@ -843,7 +843,7 @@ int main(int argc, char** argv) {
 
 	if(mode == PKGC_NONE) syntax();
 	
-	srand(time(NULL));
+	srand(time(0));
 	
 	getconfig(&state);
 	state.installed_packages = stringptrlist_new(64);
