@@ -54,6 +54,7 @@ typedef enum {
 	PKGC_INSTALL,
 	PKGC_REBUILD,
 	PKGC_PREFETCH,
+	PKGC_UPDATE,
 } pkgcommands;
 
 typedef struct {
@@ -133,6 +134,7 @@ static void syntax(void) {
 	"\t\tinstalled\n"
 	"\tprefetch: only download the given package and all of its dependencies,\n"
 	"\t\tunless they're not already in $C\n"
+	"\tupdate: rebuild all packages that changed since last build\n"
 	"\n"
 	));
 }
@@ -828,8 +830,10 @@ int main(int argc, char** argv) {
 	int i;
 	
 	const char* opt_strings[] = {
-		[PKGC_INSTALL] = "install", [PKGC_REBUILD] = "rebuild",
+		[PKGC_INSTALL] = "install",
+		[PKGC_REBUILD] = "rebuild",
 		[PKGC_PREFETCH] = "prefetch",
+		[PKGC_UPDATE] = "update",
 	};
 	
 	if(argc < 3) syntax();
