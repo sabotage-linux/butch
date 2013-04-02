@@ -386,7 +386,7 @@ static void get_installed_packages(pkgstate* state) {
 	if(oldformat) write_installed_dat(state);
 	return;
 	err:
-	log_perror("failed to open installed.dat!");
+	if(errno != ENOENT) log_perror("failed to open installed.dat!");
 }
 
 static int is_installed(pkgstate* state, stringptr* packagename) {
