@@ -774,6 +774,16 @@ static void write_installed_dat(pkgstate* state) {
 	char bak[256];
 	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
 	ulz_snprintf(bak, sizeof(bak), "%s/pkg/installed.bak", state->cfg.pkgroot.ptr);
+	/* block SIGINT */
+	struct sigaction old, nu;
+	int unblocksig = 0;
+	if(!sigaction(SIGINT, 0, &old)) {
+		unblocksig = 1;
+		nu = old;
+		nu.sa_handler = SIG_IGN;
+		nu.sa_flags &= ~SA_SIGINFO;
+		sigaction(SIGINT, &nu, 0);
+	}
 	if(rename(buf, bak) == -1) die_errno("trying to rename installed.dat to installed.bak failed");
 	int fd = open(buf, O_CREAT | O_TRUNC | O_RDWR, 0664);
 	if(fd == -1) goto err;
@@ -789,6 +799,7 @@ static void write_installed_dat(pkgstate* state) {
 	}
 	close(fd);
 	unlink(bak);
+	if(unblocksig) sigaction(SIGINT, &old, 0);
 	return;
 	err:
 	rename(bak, buf);
