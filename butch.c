@@ -784,7 +784,13 @@ static void write_installed_dat(pkgstate* state) {
 		nu.sa_flags &= ~SA_SIGINFO;
 		sigaction(SIGINT, &nu, 0);
 	}
-	if(rename(buf, bak) == -1) die_errno("trying to rename installed.dat to installed.bak failed");
+
+	int renamed = 1;
+	if(rename(buf, bak) == -1) {
+		renamed = 0;
+		if(errno != ENOENT) log_puterror(2, "trying to rename installed.dat to installed.bak failed");
+	}
+
 	int fd = open(buf, O_CREAT | O_TRUNC | O_RDWR, 0664);
 	if(fd == -1) goto err;
 	size_t i;
@@ -798,11 +804,11 @@ static void write_installed_dat(pkgstate* state) {
 		if(write(fd, "\n", 1) != 1) goto err;
 	}
 	close(fd);
-	unlink(bak);
+	if(renamed) unlink(bak);
 	if(unblocksig) sigaction(SIGINT, &old, 0);
 	return;
 	err:
-	rename(bak, buf);
+	if(renamed) rename(bak, buf);
 	die(SPL("error writing to installed.dat"));
 }
 
