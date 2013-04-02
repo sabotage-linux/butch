@@ -815,14 +815,10 @@ static void mark_finished(pkgstate* state, stringptr* name) {
 		stringptrlist_add_strdup(state->installed_packages.hashes, SPMAKE(hash, 128));
 		write_installed_dat(state);
 	} else { /* update hash */
-		// since we remove hashes and names from the installed list, this should never be needed */
-		assert(EQ(stringptrlist_get(state->installed_packages.hashes, idx), SPMAKE(hash, 128)));
-		if(0) {
-			stringptr* e = stringptrlist_get(state->installed_packages.hashes, idx);
-			free(e->ptr);
-			char* e2 = stringptr_strdup(SPMAKE(hash, 128));
-			stringptrlist_set(state->installed_packages.hashes, idx, e2, 128);
-		}
+		stringptr* e = stringptrlist_get(state->installed_packages.hashes, idx);
+		free(e->ptr);
+		char* e2 = stringptr_strdup(SPMAKE(hash, 128));
+		stringptrlist_set(state->installed_packages.hashes, idx, e2, 128);
 	}
 }
 
