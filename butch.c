@@ -482,6 +482,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	
 	for(i = 0; i < stringptrlist_getsize(pkg->deps); i++) {
 		queue_package(state, stringptrlist_get(pkg->deps, i), jt, 0); // omg recursion
+		pkg = packagelist_get(state->package_list, packagename, hash);
 	}
 	
 	if(
