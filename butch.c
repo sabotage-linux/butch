@@ -206,7 +206,6 @@ static void getconfig(pkgstate* state) {
 	check_access(pkgroot);
 	check_access(filecache);
 	check_access(keep);
-	check_access(butch_db);
 	
 	ulz_snprintf(state->builddir_buf, sizeof(state->builddir_buf), "%s/build", c->pkgroot.ptr);
 	stringptr_fromchar(state->builddir_buf, &c->builddir);
