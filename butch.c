@@ -198,7 +198,7 @@ static void getconfig(pkgstate* state) {
 #define check_access(X) if(access(c->X.ptr, W_OK) == -1) { \
 		log_put(2, VARISL("cannot access "), VARISL(#X), VNIL); \
 		log_perror(c->X.ptr); \
-		die(SPL("check your environment vars, if the directory exists and that you have write perm (may need root)")); \
+		die(SPL("check your environment vars, if the directory exists and\nthat you have sufficient permissions (may need root)\n")); \
 	}
 	
 	check_access(logdir);
