@@ -89,6 +89,7 @@ typedef struct {
 	stringptr logdir;
 	stringptr builddir;
 	stringptr keep;
+	stringptr butch_db;
 } pkgconfig;
 
 typedef struct {
@@ -141,7 +142,8 @@ static void syntax(void) {
 	"commands: install, rebuild, prefetch, update\n\n"
 	"pass an arbitrary number of package names as options\n\n"
 	"\tinstall: installs one or more packages when they're not yet installed\n"
-	"\t\t(list of installed packages is kept in pkg/installed.dat)\n"
+	"\t\t(list of installed packages is kept in /var/lib/butch.db unless\n"
+	"\t\t overridden via BUTCHDB env var.)\n"
 	"\trebuild: installs one or more packages even when they're already\n"
 	"\t\tinstalled\n"
 	"\tprefetch: only download the given package and all of its dependencies,\n"
@@ -181,6 +183,7 @@ static void getconfig(pkgstate* state) {
 	stringptr_fromchar(getenv("C"), &c->filecache);
 	stringptr_fromchar(getenv("K"), &c->keep);
 	stringptr_fromchar(getenv("LOGPATH"), &c->logdir);
+	stringptr_fromchar(getenv("BUTCHDB"), &c->butch_db);
 	
 	if(!c->arch.size) {
 		die(SPL("need to set $A to your arch (i.e. x86_64, i386, arm, mips, ...)\n"));
@@ -190,6 +193,7 @@ static void getconfig(pkgstate* state) {
 	if(!c->filecache.size) c->filecache = *(stringptr_copy(SPL("/src/tarballs")));
 	if(!c->keep.size) c->keep = *(stringptr_copy(SPL("/src/KEEP")));
 	if(!c->logdir.size) c->logdir = *(stringptr_copy(SPL("/src/logs")));
+	if(!c->butch_db.size) c->butch_db = *(stringptr_copy(SPL("/var/lib/butch.db")));
 	
 #define check_access(X) if(access(c->X.ptr, W_OK) == -1) { \
 		log_put(2, VARISL("cannot access "), VARISL(#X), VNIL); \
@@ -202,6 +206,7 @@ static void getconfig(pkgstate* state) {
 	check_access(pkgroot);
 	check_access(filecache);
 	check_access(keep);
+	check_access(butch_db);
 	
 	ulz_snprintf(state->builddir_buf, sizeof(state->builddir_buf), "%s/build", c->pkgroot.ptr);
 	stringptr_fromchar(state->builddir_buf, &c->builddir);
@@ -362,8 +367,7 @@ static void get_installed_packages(pkgstate* state) {
 	stringptr line;
 	int oldformat = 0;
 	
-	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
-	if(fileparser_open(&f, buf)) goto err;
+	if(fileparser_open(&f, state->cfg.butch_db.ptr)) goto err;
 	while(!fileparser_readline(&f) && !fileparser_getline(&f, &line) && line.size) {
 		char* p = line.ptr;
 		while(*p && *p != ' ') p++;
@@ -372,7 +376,7 @@ static void get_installed_packages(pkgstate* state) {
 		stringptr *temp = SPMAKE(line.ptr, l);
 		stringptrlist_add_strdup(state->installed_packages.names, temp);
 		if(l == line.size) {
-			/* old installed.dat format containing only package names */
+			/* old butch.db format containing only package names */
 			oldformat = 1;
 			get_package_hash(state, temp, buf);
 			temp = SPMAKE(buf, 128);
@@ -386,7 +390,7 @@ static void get_installed_packages(pkgstate* state) {
 	if(oldformat) write_installed_dat(state);
 	return;
 	err:
-	if(errno != ENOENT) log_perror("failed to open installed.dat!");
+	if(errno != ENOENT) log_perror("failed to open butch.db!");
 }
 
 static int is_installed(pkgstate* state, stringptr* packagename) {
@@ -773,8 +777,8 @@ static void print_info(pkgstate* state) {
 static void write_installed_dat(pkgstate* state) {
 	char buf[256];
 	char bak[256];
-	ulz_snprintf(buf, sizeof(buf), "%s/pkg/installed.dat", state->cfg.pkgroot.ptr);
-	ulz_snprintf(bak, sizeof(bak), "%s/pkg/installed.bak", state->cfg.pkgroot.ptr);
+	ulz_snprintf(buf, sizeof(buf), "%s", state->cfg.butch_db.ptr);
+	ulz_snprintf(bak, sizeof(bak), "%s.bak", state->cfg.butch_db.ptr);
 	/* block SIGINT */
 	struct sigaction old, nu;
 	int unblocksig = 0;
@@ -789,7 +793,7 @@ static void write_installed_dat(pkgstate* state) {
 	int renamed = 1;
 	if(rename(buf, bak) == -1) {
 		renamed = 0;
-		if(errno != ENOENT) log_puterror(2, "trying to rename installed.dat to installed.bak failed");
+		if(errno != ENOENT) log_puterror(2, "trying to rename butch.db failed");
 	}
 
 	int fd = open(buf, O_CREAT | O_TRUNC | O_RDWR, 0664);
@@ -810,7 +814,7 @@ static void write_installed_dat(pkgstate* state) {
 	return;
 	err:
 	if(renamed) rename(bak, buf);
-	die(SPL("error writing to installed.dat"));
+	die(SPL("error writing to butch.db"));
 }
 
 static void mark_finished(pkgstate* state, stringptr* name) {
