@@ -646,6 +646,9 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 	stringptr_free(temp); temp = temp2;
 	temp2 = stringptr_replace(temp, SPL("%BUTCH_TARBALL"), hastarball ? stringptr_fromchar(buf, &tb) : SPL("$dummy"));
 	stringptr_free(temp); temp = temp2;
+	temp2 = stringptr_replace(temp, SPL("%BUTCH_IS_REBUILD"), is_installed(state, item->name) ? SPL("true") : SPL("false"));
+	stringptr_free(temp); temp = temp2;
+	
 	
 	if(ptype == JT_DOWNLOAD) {
 		temp2 = stringptr_replace(temp, SPL("%BUTCH_MIRROR_URL"), 
