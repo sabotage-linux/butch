@@ -265,6 +265,12 @@ static void get_package_filename(pkgstate *state, stringptr* packagename, char* 
 	ulz_snprintf(buf, buflen, "%s/pkg/%s", state->cfg.pkgroot.ptr, packagename->ptr);
 }
 
+static int package_exists(pkgstate *state, stringptr* packagename) {
+	char buf[256];
+	get_package_filename(state, packagename, buf, sizeof(buf));
+	return access(buf, R_OK) == 0;
+}
+
 static int get_package_hash(pkgstate *state, stringptr* packagename, char* outbuf) {
 	char buf[256];
 	get_package_filename(state, packagename, buf, sizeof(buf));
@@ -840,7 +846,11 @@ static void prepare_update(pkgstate* state, stringptrlist* packages2install) {
 	size_t i;
 	for(i = 0; i < sblist_getsize(state->installed_packages.names);) {
 		stringptr* name = stringptrlist_get(state->installed_packages.names, i);
-		if(!get_package_hash(state, name, hash)) log_puterror(2, "failed to get pkg hash");
+		if(!package_exists(state, name)) goto next;
+		if(!get_package_hash(state, name, hash)) {
+			log_puterror(2, "failed to get pkg hash");
+			goto next;
+		}
 		stringptr* h = stringptrlist_get(state->installed_packages.hashes, i);
 		stringptr* h2 = SPMAKE(hash, 128);
 		if(!EQ(h, h2)) {
@@ -848,7 +858,10 @@ static void prepare_update(pkgstate* state, stringptrlist* packages2install) {
 			free(h->ptr);
 			sblist_delete(state->installed_packages.names, i);
 			sblist_delete(state->installed_packages.hashes, i);
-		} else i++;
+		} else {
+			next:
+			i++;
+		}
 	}
 }
 
