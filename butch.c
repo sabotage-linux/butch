@@ -120,7 +120,10 @@ typedef struct {
 	char builddir_buf[1024];
 } pkgstate;
 
-static const char* queue_names[] = { [JT_DOWNLOAD] = "download", [JT_BUILD] = "build", };
+static const char* queue_names[] = {
+	[JT_DOWNLOAD] = "download",
+	[JT_BUILD] = "build",
+};
 
 #define PID_WAITING ((pid_t) -1)
 #define PID_FINISHED ((pid_t) 0)
@@ -184,7 +187,7 @@ static void getconfig(pkgstate* state) {
 	stringptr_fromchar(getenv("K"), &c->keep);
 	stringptr_fromchar(getenv("LOGPATH"), &c->logdir);
 	stringptr_fromchar(getenv("BUTCHDB"), &c->butch_db);
-	
+
 	if(!c->arch.size) {
 		die(SPL("need to set $A to your arch (i.e. x86_64, i386, arm, mips, ...)\n"));
 	}
@@ -194,25 +197,25 @@ static void getconfig(pkgstate* state) {
 	if(!c->keep.size) c->keep = *(stringptr_copy(SPL("/src/KEEP")));
 	if(!c->logdir.size) c->logdir = *(stringptr_copy(SPL("/src/logs")));
 	if(!c->butch_db.size) c->butch_db = *(stringptr_copy(SPL("/var/lib/butch.db")));
-	
+
 #define check_access(X) if(access(c->X.ptr, W_OK) == -1) { \
 		log_put(2, VARISL("cannot access "), VARISL(#X), VNIL); \
 		log_perror(c->X.ptr); \
 		die(SPL("check your environment vars, if the directory exists and\nthat you have sufficient permissions (may need root)\n")); \
 	}
-	
+
 	check_access(logdir);
 	check_access(installroot);
 	check_access(pkgroot);
 	check_access(filecache);
 	check_access(keep);
-	
+
 	ulz_snprintf(state->builddir_buf, sizeof(state->builddir_buf), "%s/build", c->pkgroot.ptr);
 	stringptr_fromchar(state->builddir_buf, &c->builddir);
 	if(access(state->builddir_buf, W_OK) == -1 && (errno != ENOENT || mkdir(state->builddir_buf, 0770) == -1)) {
 		check_access(builddir);
 	}
-	
+
 #undef check_access
 	getconfig_skip(state);
 }
@@ -244,7 +247,7 @@ static int sha512_hash(const char* filename, char *outbuf) {
 	ssize_t nread;
 	char buf[4*1024];
 	int success = 0;
-		
+
 	fd = open(filename, O_RDONLY);
 	if(fd == -1) return 0;
 	SHA512_Init(&ctx);
@@ -285,24 +288,24 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 	ini_section sec;
 	stringptr* fc = stringptr_fromfile(buf);
 	stringptr val;
-	
+
 	if(!fc) goto err;
 	stringptrlist* ini = stringptr_linesplit(fc);
 	size_t start = 0;
-	
+
 	stringptr* tmp;
-	
+
 	sec = iniparser_get_section(ini, SPL("mirrors"));
 	out->mirrors = stringptrlist_new(sec.linecount);
-	
+
 	for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
 		tmp = stringptrlist_get(ini, start);
 		if(tmp->size) stringptrlist_add_strdup(out->mirrors, tmp);
 	}
-	
-	
+
+
 	sec = iniparser_get_section(ini, SPL("main"));
-	
+
 	iniparser_getvalue(ini, &sec, SPL("tardir"), &val);
 	if(val.size)
 		out->tardir = stringptr_copy(&val);
@@ -318,27 +321,27 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 		}
 		out->tardir = stringptr_copy(&fe);
 	}
-	
+
 	iniparser_getvalue(ini, &sec, SPL("sha512"), &val);
 	if(val.size)
 		out->sha512 = stringptr_copy(&val);
 	else
 		out->sha512 = 0;
-	
+
 	iniparser_getvalue(ini, &sec, SPL("filesize"), &val);
 	if(val.size)
 		out->filesize = strtoint64(val.ptr, val.size);
 	else
 		out->filesize = 0;
-	
+
 	sec = iniparser_get_section(ini, SPL("deps"));
 	out->deps = stringptrlist_new(sec.linecount);
-	
+
 	for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
 		tmp = stringptrlist_get(ini, start);
 		if(tmp->size) stringptrlist_add_strdup(out->deps, tmp);
 	}
-	
+
 	sec = iniparser_get_section(ini, SPL("build")); // the build section has always to come last
 	if(sec.startline || sec.linecount) {
 		start = sec.startline;
@@ -346,16 +349,16 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 		// so be sure to use the entire rest of the file
 		sec.startline = start;
 		sec.linecount -= start;
-		
+
 		out->buildscript = stringptrlist_new(sec.linecount);
-		
+
 		for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
 			tmp = stringptrlist_get(ini, start);
 			stringptrlist_add_strdup(out->buildscript, tmp);
 		}
-	} else 
+	} else
 		out->buildscript = stringptrlist_new(1);
-	
+
 	stringptrlist_free(ini);
 	stringptr_free(fc);
 	return;
@@ -371,7 +374,7 @@ static void get_installed_packages(pkgstate* state) {
 	char buf[256];
 	stringptr line;
 	int oldformat = 0;
-	
+
 	if(fileparser_open(&f, state->cfg.butch_db.ptr)) goto err;
 	while(!fileparser_readline(&f) && !fileparser_getline(&f, &line) && line.size) {
 		char* p = line.ptr;
@@ -441,7 +444,7 @@ static pkgdata* packagelist_get(hashlist* list, stringptr* name, uint32_t hash) 
 	pkgdata* result;
 	if(bucket) {
 		sblist_iter(bucket, result) {
-			if(EQ(name, result->name)) 
+			if(EQ(name, result->name))
 				return result;
 		}
 	}
@@ -466,34 +469,34 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	if(!packagename->size) goto end;
 	sblist* queue = state->queue[jt];
 	stringptrlist* checklist = state->checked[jt];
-	
+
 	// check if we already processed this entry.
 	if(stringptrlist_contains(checklist, packagename)) {
 		goto end;
 	}
 	stringptrlist_add_strdup(checklist, packagename);
-	
+
 	if(is_in_queue(packagename, queue)) goto end;
-	
+
 	if(!force && is_installed(state, packagename)) {
 		ulz_fprintf(1, "package %s is already installed, skipping %s\n", packagename->ptr, queue_names[jt]);
 		goto end;
 	}
-	
+
 	uint32_t hash = stringptr_hash(packagename);
 	pkgdata* pkg = packagelist_get(state->package_list, packagename, hash);
 	unsigned i;
-	
+
 	if(!pkg) {
 		pkg = packagelist_add(state->package_list, packagename, hash);
 		get_package_contents(state, packagename, pkg);
 	}
-	
+
 	for(i = 0; i < stringptrlist_getsize(pkg->deps); i++) {
 		queue_package(state, stringptrlist_get(pkg->deps, i), jt, 0); // omg recursion
 		pkg = packagelist_get(state->package_list, packagename, hash);
 	}
-	
+
 	if(
 		// if sizeof mirrors is 0, it is a meta package
 		(jt == JT_DOWNLOAD && stringptrlist_getsize(pkg->mirrors) && !has_tarball(state, pkg))
@@ -503,7 +506,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	}
 end:
 	depth--;
-	
+
 }
 
 //return 0 on success.
@@ -567,7 +570,7 @@ static stringptr* make_config(pkgconfig* cfg) {
 	return result;
 }
 
-static const stringptr* default_scripts[] = { 
+static const stringptr* default_scripts[] = {
 	[JT_DOWNLOAD] = SPL(
 	"#!/bin/sh\n"
 	"%BUTCH_CONFIG\n"
@@ -583,7 +586,7 @@ static const stringptr* default_scripts[] = {
 	"butch_cache_dir=\"$C\"\n\n"
 	"[ -z \"$CC\" ]  && CC=cc\n"
 	"if %BUTCH_HAVE_TARBALL ; then\n"
-	"\tcd \"$S/build\"\n" 
+	"\tcd \"$S/build\"\n"
 	"\t[ -e \"%BUTCH_TARDIR\" ] && rm -rf \"%BUTCH_TARDIR\"\n"
 	"\ttar xf \"$butch_cache_dir/%BUTCH_TARBALL\" || (echo tarball error; exit 1)\n"
 	"\tcd \"$S/build/%BUTCH_TARDIR\"\n"
@@ -596,17 +599,17 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 	stringptr *temp, *temp2, *config, tb;
 	static const char* prefixes[] = { [JT_DOWNLOAD] = "dl", [JT_BUILD] = "build", };
 	const char *prefix = prefixes[ptype];
-	
+
 	static const char* template_env_vars[] = { [JT_DOWNLOAD] = "BUTCH_DOWNLOAD_TEMPLATE", [JT_BUILD] = "BUTCH_BUILD_TEMPLATE" };
 	char *custom_template =  getenv(template_env_vars[ptype]);
-	
+
 	const stringptr* default_script = default_scripts[ptype];;
-	
+
 	char buf[256];
 	int hastarball;
 
 	item->scripts.filename = stringptr_format("%s/%s_%s.sh", state->cfg.builddir.ptr, prefix, item->name->ptr);
-	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr); 
+	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr);
 
 	config = make_config(&state->cfg);
 
@@ -617,9 +620,9 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 	}
 
 	hastarball = get_tarball_filename(state, data, buf, sizeof(buf), 0);
-	
+
 	stringptr* buildscr = (ptype == JT_BUILD ? stringptrlist_tostring(data->buildscript) : SPL(""));
-	
+
 	if(     // prevent erroneus scripts from trash our fs
 		(ptype == JT_BUILD && hastarball && data->tardir->size && data->tardir->ptr[0] == '/') ||
 		// bug
@@ -644,7 +647,7 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 	stringptr_free(temp); temp = temp2;
 	temp2 = stringptr_replace(temp, SPL("%BUTCH_BUILDSCRIPT"), buildscr);
 	stringptr_free(temp); temp = temp2;
-	
+
 	temp2 = stringptr_replace(temp, SPL("%BUTCH_HAVE_TARBALL"), hastarball ? SPL("true") : SPL("false"));
 	stringptr_free(temp); temp = temp2;
 	temp2 = stringptr_replace(temp, SPL("%BUTCH_TARDIR"), hastarball ? data->tardir : SPL("$dummy"));
@@ -653,15 +656,15 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 	stringptr_free(temp); temp = temp2;
 	temp2 = stringptr_replace(temp, SPL("%BUTCH_IS_REBUILD"), is_installed(state, item->name) ? SPL("true") : SPL("false"));
 	stringptr_free(temp); temp = temp2;
-	
-	
+
+
 	if(ptype == JT_DOWNLOAD) {
-		temp2 = stringptr_replace(temp, SPL("%BUTCH_MIRROR_URL"), 
+		temp2 = stringptr_replace(temp, SPL("%BUTCH_MIRROR_URL"),
 						stringptrlist_get(data->mirrors, rand() % stringptrlist_getsize(data->mirrors)));
 		stringptr_free(temp); temp = temp2;
-	} else 
+	} else
 		stringptr_free(buildscr);
-	
+
 	write_it:
 	stringptr_tofile(item->scripts.filename->ptr, temp);
 	if(chmod(item->scripts.filename->ptr, 0775) == -1) die(SPL("error setting permission"));
@@ -681,7 +684,7 @@ static void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdat
 
 	arr[0] = item->scripts.filename->ptr;
 	arr[1] = 0;
-	
+
 	posix_spawn_file_actions_init(&item->fa);
 	posix_spawn_file_actions_addclose(&item->fa, 0);
 	posix_spawn_file_actions_addclose(&item->fa, 1);
@@ -740,7 +743,7 @@ static void fill_slots(jobtype ptype, pkgstate* state) {
 				item->pid = PID_FINISHED;
 				continue;
 			}
-			
+
 			pkg = packagelist_get(state->package_list, item->name, stringptr_hash(item->name));
 			if(ptype == JT_DOWNLOAD || has_all_deps(state, pkg)) {
 				if(ptype == JT_BUILD && !pkg->verified && stringptrlist_getsize(pkg->mirrors)) {
@@ -769,7 +772,7 @@ static void print_queue(pkgstate* state, jobtype jt) {
 	sblist* queue = state->queue[jt];
 	const char *queuename = queue_names[jt];
 	pkg_exec* listitem;
-	
+
 	log_put(1, VARISL("*** "), VARICC(queuename), VARISL("queue ***"), VNIL);
 	sblist_iter(queue, listitem) {
 		log_puts(1, listitem->name);
@@ -877,14 +880,14 @@ static void warn_errors(pkgstate* state) {
 static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event) {
 	pkg_exec* listitem;
 	sblist *queue = state->queue[jt];
-	
+
 	sblist_iter(queue, listitem) {
 		int exitstatus, ret;
 		// check for a running process.
 		if(listitem->pid == PID_FINISHED || listitem->pid == PID_WAITING) continue;
-		
+
 		ret = waitpid(listitem->pid, &exitstatus, WNOHANG);
-		
+
 		// still busy
 		if(ret == 0) continue;
 		*had_event = 1;
@@ -894,7 +897,7 @@ static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event
 			log_perror("waitpid");
 			goto retry;
 		}
-		
+
 		if(exitstatus == 0) {
 			// process exited gracefully
 			if(jt == JT_DOWNLOAD) {
@@ -923,7 +926,7 @@ retry:
 				stringptrlist_add_strdup(state->build_errors, listitem->name);
 finished:
 				listitem->pid = PID_FINISHED;
-				
+
 			}
 		}
 	}
@@ -935,15 +938,15 @@ static void check_processes_and_fill_slots(pkgstate* state, jobtype jt, int* had
 }
 static int process_queue(pkgstate* state) {
 	int had_event = 0;
-	
+
 	check_processes_and_fill_slots(state, JT_DOWNLOAD, &had_event);
 	check_processes_and_fill_slots(state, JT_BUILD, &had_event);
-	
+
 	if(had_event) warn_errors(state);
-	
+
 	int done = (state->slots[JT_DOWNLOAD].avail == state->slots[JT_DOWNLOAD].max &&
 	         state->slots[JT_BUILD].avail == state->slots[JT_BUILD].max);
-	
+
 	return !done;
 }
 
@@ -961,39 +964,39 @@ int main(int argc, char** argv) {
 	pkgstate state;
 	pkgcommands mode = PKGC_NONE;
 	int i;
-	
+
 	const char* opt_strings[] = {
 		[PKGC_INSTALL] = "install",
 		[PKGC_REBUILD] = "rebuild",
 		[PKGC_PREFETCH] = "prefetch",
 		[PKGC_UPDATE] = "update",
 	};
-	
+
 	if(argc < 2) syntax();
-	
+
 	for(i = PKGC_NONE + 1; (unsigned) i < ARRAY_SIZE(opt_strings); i++)
 		if(!strcmp(argv[1], opt_strings[i]))
 			mode = (pkgcommands) i;
 
 	if(mode == PKGC_NONE || (mode != PKGC_UPDATE && argc < 3) || (mode == PKGC_UPDATE && argc > 2))
 		syntax();
-	
+
 	srand(time(0));
-	
+
 	getconfig(&state);
 	state.installed_packages.names = stringptrlist_new(64);
 	state.installed_packages.hashes = stringptrlist_new(64);
 	get_installed_packages(&state);
-	
+
 	state.package_list = hashlist_new(64, sizeof(pkgdata));
 	state.queue[JT_DOWNLOAD] = sblist_new(sizeof(pkg_exec), 64);
 	state.queue[JT_BUILD] = sblist_new(sizeof(pkg_exec), 64);
 	state.build_errors = stringptrlist_new(4);
 	state.checked[JT_DOWNLOAD] = stringptrlist_new(64);
 	state.checked[JT_BUILD] = stringptrlist_new(64);
-	
+
 	stringptrlist* packages2install = stringptrlist_new(16);
-	
+
 	if(mode == PKGC_UPDATE) {
 		prepare_update(&state, packages2install);
 		mode = PKGC_INSTALL;
@@ -1001,39 +1004,39 @@ int main(int argc, char** argv) {
 		stringptr curr;
 		// allow something like pkg/packagename to be passed
 		char* pkg_name = strrchr(argv[i], '/');
-		
+
 		if(!pkg_name) pkg_name = argv[i];
 		else pkg_name++;
-		
+
 		stringptr_fromchar(pkg_name, &curr);
 		stringptrlist_add_strdup(packages2install, &curr);
 	}
-	
+
 	stringptr *curr_pkg;
 	sblist_iter(packages2install, curr_pkg) {
 		const int force[] = { [PKGC_REBUILD] = 1,  [PKGC_INSTALL] = 0 };
 		queue_package(&state, curr_pkg, JT_DOWNLOAD, force[mode]);
-		if(mode != PKGC_PREFETCH) 
+		if(mode != PKGC_PREFETCH)
 			queue_package(&state, curr_pkg, JT_BUILD, force[mode]);
 	}
 	stringptrlist_freeall(packages2install);
-	
+
 	print_info(&state);
 	prepare_slots(&state);
-	
+
 	while(process_queue(&state)) msleep(SLEEP_MS);
-	
+
 	int failed = stringptrlist_getsize(state.build_errors) != 0;
-	
+
 	if(state.skippkgs) goto skipfailure_check;
-	
+
 	if(!failed && (!(queue_empty(state.queue[JT_DOWNLOAD])) || !(queue_empty(state.queue[JT_BUILD])))) {
 		ulz_fprintf(2, "[WARNING] circular reference detected!\n");
 		failed = 1;
 	}
-	
+
 	skipfailure_check:
-	
+
 	// clean up ...
 	stringptrlist_freeall(state.build_errors);
 	stringptrlist_freeall(state.checked[JT_DOWNLOAD]);
@@ -1042,23 +1045,23 @@ int main(int argc, char** argv) {
 	stringptrlist_freeall(state.installed_packages.hashes);
 	if(state.skippkgs)
 		stringptrlist_freeall(state.skippkgs);
-	
+
 	hashlist_iterator hit;
 	hashlist_iterator_init(&hit);
 	pkgdata* data;
 	while((data = hashlist_next(state.package_list, &hit))) {
 		free_package_data(data);
 	}
-	
+
 	hashlist_free(state.package_list);
-	
+
 	freequeue(state.queue[JT_DOWNLOAD]);
 	freequeue(state.queue[JT_BUILD]);
-	
+
 	log_timestamp(1);
 	log_putspace(1);
 	log_puts(1, SPL("done."));
 	log_putln(1);
-	
+
 	return failed;
 }
