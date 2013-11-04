@@ -981,6 +981,12 @@ int main(int argc, char** argv) {
 	if(mode == PKGC_NONE || (mode != PKGC_UPDATE && argc < 3) || (mode == PKGC_UPDATE && argc > 2))
 		syntax();
 
+	/* if /dev/null is missing posix_spawn would silently fail when executing child processes */
+	if(access("/dev/null", R_OK) == -1) {
+		perror("error accessing /dev/null");
+		die(SPL(""));
+	}
+
 	srand(time(0));
 
 	getconfig(&state);
