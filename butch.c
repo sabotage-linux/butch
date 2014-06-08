@@ -347,7 +347,7 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 
 	for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
 		tmp = stringptrlist_get(ini, start);
-		if(tmp->size) stringptrlist_add_strdup(out->deps, tmp);
+		if(tmp->size && in_skip_list(state, tmp) == -1) stringptrlist_add_strdup(out->deps, tmp);
 	}
 
 	sec = iniparser_get_section(ini, SPL("build")); // the build section has always to come last
@@ -475,6 +475,8 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 		goto end;
 	}
 	if(!packagename->size) goto end;
+	if(in_skip_list(state, packagename) >= 0) goto end;
+
 	sblist* queue = state->queue[jt];
 	stringptrlist* checklist = state->checked[jt];
 
@@ -706,8 +708,10 @@ static void launch_thread(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdat
 static int has_all_deps(pkgstate* state, pkgdata* item) {
 	size_t i;
 	pkg_exec* dlitem;
-	for(i = 0; i < stringptrlist_getsize(item->deps); i++)
-		if(!is_installed(state, stringptrlist_get(item->deps, i))) return 0;
+	for(i = 0; i < stringptrlist_getsize(item->deps); i++) {
+		stringptr *s = stringptrlist_get(item->deps, i);
+		if(in_skip_list(state, s) == -1 && !is_installed(state, s)) return 0;
+	}
 
 	sblist_iter(state->queue[JT_DOWNLOAD], dlitem) {
 		if(EQ(dlitem->name, item->name)) {
@@ -737,10 +741,7 @@ static void fill_slots(jobtype ptype, pkgstate* state) {
 	for(i = 0; *slots_avail && i < sblist_getsize(queue); i++) {
 		item = sblist_get(queue, i);
 		if(item->pid == PID_WAITING) {
-			ptrdiff_t skipidx;
-			if((skipidx = in_skip_list(state, item->name)) >= 0) {
-				// FIXME check if we need to free the stringptr member too (likely)
-				sblist_delete(state->skippkgs, skipidx);
+			if(in_skip_list(state, item->name) >= 0) {
 				item->pid = PID_FINISHED;
 				continue;
 			}
