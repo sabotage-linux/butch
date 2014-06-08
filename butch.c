@@ -117,7 +117,6 @@ typedef struct {
 	stringptrlist* build_errors;
 	stringptrlist* skippkgs;
 	procslots slots[JT_MAX];
-	char builddir_buf[1024];
 } pkgstate;
 
 static const char* queue_names[] = {
@@ -183,6 +182,7 @@ static void getconfig(pkgstate* state) {
 	stringptr_fromchar(getenv("A"), &c->arch);
 	stringptr_fromchar(getenv("R"), &c->installroot);
 	stringptr_fromchar(getenv("S"), &c->pkgroot);
+	stringptr_fromchar(getenv("B"), &c->builddir);
 	stringptr_fromchar(getenv("C"), &c->filecache);
 	stringptr_fromchar(getenv("K"), &c->keep);
 	stringptr_fromchar(getenv("LOGPATH"), &c->logdir);
@@ -193,27 +193,35 @@ static void getconfig(pkgstate* state) {
 	}
 	if(!c->installroot.size) c->installroot = *(stringptr_copy(SPL("/")));
 	if(!c->pkgroot.size) c->pkgroot = *(stringptr_copy(SPL("/src")));
+	if(!c->builddir.size) c->builddir = *(stringptr_concat(&c->pkgroot, SPL("/build"), SPNIL));
 	if(!c->filecache.size) c->filecache = *(stringptr_copy(SPL("/src/tarballs")));
 	if(!c->keep.size) c->keep = *(stringptr_copy(SPL("/src/KEEP")));
 	if(!c->logdir.size) c->logdir = *(stringptr_copy(SPL("/src/logs")));
 	if(!c->butch_db.size) c->butch_db = *(stringptr_copy(SPL("/var/lib/butch.db")));
 
-#define check_access(X) if(access(c->X.ptr, W_OK) == -1) { \
+#define check_access(X, MODE) if(access(c->X.ptr, MODE) == -1) { \
 		log_put(2, VARISL("cannot access "), VARISL(#X), VNIL); \
 		log_perror(c->X.ptr); \
 		die(SPL("check your environment vars, if the directory exists and\nthat you have sufficient permissions (may need root)\n")); \
+	} /* "" */
+
+	check_access(logdir, W_OK);
+	check_access(installroot, W_OK);
+	check_access(pkgroot, R_OK);
+	check_access(filecache, W_OK);
+	check_access(keep, R_OK);
+
+	if(access(c->builddir.ptr, W_OK) == -1 && (errno != ENOENT || mkdir(c->builddir.ptr, 0770) == -1)) {
+		check_access(builddir, W_OK);
 	}
 
-	check_access(logdir);
-	check_access(installroot);
-	check_access(pkgroot);
-	check_access(filecache);
-	check_access(keep);
-
-	ulz_snprintf(state->builddir_buf, sizeof(state->builddir_buf), "%s/build", c->pkgroot.ptr);
-	stringptr_fromchar(state->builddir_buf, &c->builddir);
-	if(access(state->builddir_buf, W_OK) == -1 && (errno != ENOENT || mkdir(state->builddir_buf, 0770) == -1)) {
-		check_access(builddir);
+	char buf[256], *p;
+	ulz_snprintf(buf, sizeof buf, "%s", c->butch_db.ptr);
+	if((p=strrchr(buf, '/'))) {
+		*p = 0;
+		if(access(buf, W_OK) == -1 && (errno != ENOENT || mkdir(buf, 0770) == -1)) {
+			die(stringptr_concat(SPL("directory for "), &c->butch_db, SPL("could not be created or no write perm.\n"), SPNIL));
+		}
 	}
 
 #undef check_access
@@ -557,6 +565,7 @@ static stringptr* make_config(pkgconfig* cfg) {
 		EXPORT("S", &cfg->pkgroot),
 		EXPORT("C", &cfg->filecache),
 		EXPORT("K", &cfg->keep),
+		EXPORT("B", &cfg->builddir),
 		SPNIL);
 	return result;
 #undef EXPORT
