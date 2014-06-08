@@ -550,24 +550,16 @@ static int verify_tarball(pkgstate* state, pkgdata* package) {
 }
 
 static stringptr* make_config(pkgconfig* cfg) {
+#define EXPORT(K, V) SPL("export " K "="), V, SPL("\n")
 	stringptr* result = stringptr_concat(
-		SPL("export A="),
-		&cfg->arch,
-		SPL("\n"),
-		SPL("export R="),
-		&cfg->installroot,
-		SPL("\n"),
-		SPL("export S="),
-		&cfg->pkgroot,
-		SPL("\n"),
-		SPL("export C="),
-		&cfg->filecache,
-		SPL("\n"),
-		SPL("export K="),
-		&cfg->keep,
-		SPL("\n"),
+		EXPORT("A", &cfg->arch),
+		EXPORT("R", &cfg->installroot),
+		EXPORT("S", &cfg->pkgroot),
+		EXPORT("C", &cfg->filecache),
+		EXPORT("K", &cfg->keep),
 		SPNIL);
 	return result;
+#undef EXPORT
 }
 
 static const stringptr* default_scripts[] = {
