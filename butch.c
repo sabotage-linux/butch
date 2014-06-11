@@ -220,7 +220,7 @@ static void getconfig(pkgstate* state) {
 	if((p=strrchr(buf, '/'))) {
 		*p = 0;
 		if(access(buf, W_OK) == -1 && (errno != ENOENT || mkdir(buf, 0770) == -1)) {
-			die(stringptr_concat(SPL("directory for "), &c->butch_db, SPL("could not be created or no write perm.\n"), SPNIL));
+			die(stringptr_concat(SPL("directory for "), &c->butch_db, SPL(" could not be created or no write perm.\n"), SPNIL));
 		}
 	}
 
