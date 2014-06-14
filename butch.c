@@ -372,7 +372,7 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 	return;
 	err:
 	log_perror(packagename->ptr);
-	die(SPL("package not existing"));
+	die(SPL("package not existing\n"));
 }
 
 static void write_installed_dat(pkgstate* state);
