@@ -58,6 +58,14 @@ typedef enum {
 	PKGC_UPDATE,
 } pkgcommands;
 
+typedef enum {
+	DT_NONE = 0,
+	DT_BUILD = 1 << 0, /* deps required for building a package for a target */
+	DT_HOST= 1 << 1, /* deps required on the build host to build a package (for example perl if buildsys runs perl scripts) */
+	DT_RUN = 1 << 2, /* deps required to use full functionality of a package (for example if a package needs external programs to execute its binaries) */
+	DT_ALL = DT_BUILD | DT_HOST | DT_RUN,
+} deptypes;
+
 typedef struct {
 	stringptr* name;
 	uint64_t filesize;
@@ -117,6 +125,7 @@ typedef struct {
 	stringptrlist* build_errors;
 	stringptrlist* skippkgs;
 	procslots slots[JT_MAX];
+	int depflags;
 } pkgstate;
 
 static const char* queue_names[] = {
@@ -177,6 +186,22 @@ static void getconfig_skip(pkgstate* state) {
 	}
 }
 
+static int getconfig_deps(pkgstate* state) {
+	stringptr tmp;
+	stringptr_fromchar(getenv("DEPS"), &tmp);
+	if(!tmp.size) return DT_ALL;
+	stringptrlist *l = stringptr_splitc(&tmp, ':');
+	stringptr *item;
+	int res = 0;
+	sblist_iter(l, item) {
+		if(EQ(item, SPL("all"))) return DT_ALL;
+		if(EQ(item, SPL("host"))) res |= DT_HOST;
+		else if(EQ(item, SPL("run"))) res |= DT_RUN;
+		else if(EQ(item, SPL("build"))) res |= DT_BUILD;
+	}
+	return res;
+}
+
 static void getconfig(pkgstate* state) {
 	pkgconfig* c = &state->cfg;
 	stringptr_fromchar(getenv("A"), &c->arch);
@@ -226,6 +251,7 @@ static void getconfig(pkgstate* state) {
 
 #undef check_access
 	getconfig_skip(state);
+	state->depflags = getconfig_deps(state);
 }
 
 static int get_tarball_filename(pkgstate* state, pkgdata* package, char* buf, size_t bufsize, int with_path) {
@@ -345,9 +371,20 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 	sec = iniparser_get_section(ini, SPL("deps"));
 	out->deps = stringptrlist_new(sec.linecount);
 
-	for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
-		tmp = stringptrlist_get(ini, start);
-		if(tmp->size && in_skip_list(state, tmp) == -1) stringptrlist_add_strdup(out->deps, tmp);
+	static const struct { const stringptr secname; deptypes dt; } depmap[] = {
+		{ .secname = SPINITIALIZER("deps"), .dt = DT_BUILD },
+		{ .secname = SPINITIALIZER("deps.host"), .dt = DT_HOST },
+		{ .secname = SPINITIALIZER("deps.run"), .dt = DT_RUN },
+	};
+	size_t i;
+	for(i = 0; i < ARRAY_SIZE(depmap); i++) {
+		if(state->depflags & depmap[i].dt) {
+			sec = iniparser_get_section(ini, &depmap[i].secname);
+			for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
+				tmp = stringptrlist_get(ini, start);
+				if(tmp->size && in_skip_list(state, tmp) == -1) stringptrlist_add_strdup(out->deps, tmp);
+			}
+		}
 	}
 
 	sec = iniparser_get_section(ini, SPL("build")); // the build section has always to come last
