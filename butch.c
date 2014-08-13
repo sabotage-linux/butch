@@ -508,7 +508,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	static int depth = 0;
 	depth++;
 	if(depth > 100) {
-		ulz_fprintf(2, "[WARNING] recursion level above 100!\n");
+		ulz_fprintf(2, "WARNING: recursion level above 100!\n");
 		goto end;
 	}
 	if(!packagename->size) goto end;
@@ -1079,7 +1079,7 @@ int main(int argc, char** argv) {
 	if(state.skippkgs) goto skipfailure_check;
 
 	if(!failed && (!(queue_empty(state.queue[JT_DOWNLOAD])) || !(queue_empty(state.queue[JT_BUILD])))) {
-		ulz_fprintf(2, "[WARNING] circular reference detected!\n");
+		ulz_fprintf(2, "WARNING: circular reference or download error!\n");
 		failed = 1;
 	}
 
