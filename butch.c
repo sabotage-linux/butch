@@ -40,6 +40,8 @@
 #include "sha2/sha2.h"
 #include "../lib/include/hashlist.h"
 
+#define VERSION "0.5.0"
+
 #ifndef NUM_DL_THREADS
 #define NUM_DL_THREADS 16
 #endif
@@ -149,7 +151,9 @@ static void die_errno(const char* msg) {
 }
 
 static void syntax(void) {
-	die(SPL("syntax: butch command options\n\n"
+	die(SPL(
+	"BUTCH v" VERSION "\n"
+	"syntax: butch command options\n\n"
 	"commands: install, rebuild, prefetch, update\n\n"
 	"pass an arbitrary number of package names as options\n\n"
 	"\tinstall: installs one or more packages when they're not yet installed\n"
