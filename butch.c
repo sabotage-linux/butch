@@ -709,6 +709,8 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 
 
 	if(ptype == JT_DOWNLOAD) {
+		if(!stringptr_contains(temp, SPL("%BUTCH_MIRROR_URLS")))
+			die(SPL("ERROR: download template does not contain %BUTCH_MIRROR_URLS\n"));
 		stringptr *temp3 = get_mirror_urls(data);
 		temp2 = stringptr_replace(temp, SPL("%BUTCH_MIRROR_URLS"), temp3);
 		stringptr_free(temp3);
