@@ -616,7 +616,8 @@ static const stringptr* default_scripts[] = {
 	"%BUTCH_CONFIG\n"
 	"export butch_package_name=%BUTCH_PACKAGE_NAME\n"
 	"butch_cache_dir=\"$C\"\n"
-	"wget -O \"$butch_cache_dir/%BUTCH_TARBALL\" '%BUTCH_MIRROR_URL'\n"
+	"for url in %BUTCH_MIRROR_URLS ; do\n"
+	"wget -O \"$butch_cache_dir/%BUTCH_TARBALL\" \"$url\" && break\ndone\n"
 	),
 	[JT_BUILD] = SPL(
 	"#!/bin/sh\n"
@@ -634,6 +635,15 @@ static const stringptr* default_scripts[] = {
 	"%BUTCH_BUILDSCRIPT\n"
 	),
 };
+
+static stringptr *get_mirror_urls(pkgdata* data) {
+	size_t i = 0;
+	stringptr *new = stringptr_new(0);
+	for(;i<stringptrlist_getsize(data->mirrors);i++)
+		new = stringptr_concat(new, i ? SPL(" ") : SPL(""),
+	                               stringptrlist_get(data->mirrors, i), SPNIL);
+	return new;
+}
 
 static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata* data) {
 	stringptr *temp, *temp2, *config, tb;
@@ -699,8 +709,9 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 
 
 	if(ptype == JT_DOWNLOAD) {
-		temp2 = stringptr_replace(temp, SPL("%BUTCH_MIRROR_URL"),
-						stringptrlist_get(data->mirrors, rand() % stringptrlist_getsize(data->mirrors)));
+		stringptr *temp3 = get_mirror_urls(data);
+		temp2 = stringptr_replace(temp, SPL("%BUTCH_MIRROR_URLS"), temp3);
+		stringptr_free(temp3);
 		stringptr_free(temp); temp = temp2;
 	} else
 		stringptr_free(buildscr);
@@ -934,7 +945,8 @@ static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event
 		posix_spawn_file_actions_destroy(&listitem->fa);
 		if(ret == -1) {
 			log_perror("waitpid");
-			goto retry;
+			listitem->pid = PID_WAITING;
+			continue;
 		}
 
 		if(exitstatus == 0) {
@@ -945,28 +957,17 @@ static void check_finished_processes(pkgstate* state, jobtype jt, int* had_event
 				pkg = packagelist_get(state->package_list, listitem->name, stringptr_hash(listitem->name));
 				ret = verify_tarball(state, pkg);
 				pkg->verified = !ret;
-				if(ret == 1) { // download too small, retry...
-					log_put(2, VARISL("retrying too short download of "), VARIS(listitem->name), VNIL);
-					goto retry;
-				} else {
-					// do not retry on success, hash mismatch or too big file.
-					goto finished;
-				}
+				if(ret == 1) log_put(2, VARISL("WARNING: short download of "), VARIS(listitem->name), VNIL);
+				goto finished;
 			} else {
 				mark_finished(state, listitem->name);
 				goto finished;
 			}
 		} else {
-			if(jt == JT_DOWNLOAD) {
-				log_put(2, VARISL("got error "), VARII(WEXITSTATUS(exitstatus)), VARISL(" from download script of "), VARIS(listitem->name) ,VARISL(", retrying"), VNIL);
-retry:
-				listitem->pid = PID_WAITING;
-			} else {
-				stringptrlist_add_strdup(state->build_errors, listitem->name);
+			if(jt == JT_DOWNLOAD) log_put(2, VARISL("got error "), VARII(WEXITSTATUS(exitstatus)), VARISL(" from download script of "), VARIS(listitem->name), VNIL);
+			else stringptrlist_add_strdup(state->build_errors, listitem->name);
 finished:
-				listitem->pid = PID_FINISHED;
-
-			}
+			listitem->pid = PID_FINISHED;
 		}
 	}
 }
