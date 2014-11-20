@@ -566,6 +566,12 @@ static int verify_tarball(pkgstate* state, pkgdata* package) {
 	char tarfile[256];
 	uint64_t len = 0;
 	get_tarball_filename(state, package, tarfile, sizeof(tarfile), 1);
+	if(package->filesize || package->sha512) {
+		if(access(tarfile, R_OK)) {
+			log_put(2, VARISL("WARNING: "), VARIC(tarfile), VARISL(" not existing or no read perms!"), VNIL);
+			return 5;
+		}
+	}
 	if(package->filesize) {
 		len = getfilesize(tarfile);
 		if(len < package->filesize) {
