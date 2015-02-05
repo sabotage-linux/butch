@@ -822,8 +822,11 @@ static void fill_slots(jobtype ptype, pkgstate* state) {
 }
 
 static void prepare_slots(pkgstate* state) {
-	state->slots[JT_DOWNLOAD].max = NUM_DL_THREADS;
-	state->slots[JT_BUILD].max = NUM_BUILD_THREADS;
+	char *p;
+	p = getenv("BUTCH_DL_THREADS");
+	state->slots[JT_DOWNLOAD].max = p ? atoi(p) : NUM_DL_THREADS;
+	p = getenv("BUTCH_BUILD_THREADS");
+	state->slots[JT_BUILD].max = p ? atoi(p) : NUM_BUILD_THREADS;
 	state->slots[JT_DOWNLOAD].avail = state->slots[JT_DOWNLOAD].max;
 	state->slots[JT_BUILD].avail = state->slots[JT_BUILD].max;
 	fill_slots(JT_DOWNLOAD, state);
