@@ -7,16 +7,16 @@ It stands out among other build managers in that it allows to do
 more than one thing at once.
 in the default configuration, 16 parallel download jobs
 (if necessary) and one build job are started, however changing
-these numbers just requires a recompile with the appropriate 
-macro redefinition in CPPFLAGS.
+these numbers just requires overriding them via the env variables
+BUTCH_DL_THREADS and BUTCH_BUILD_THREADS.
 
 as soon as one download finished (and the checksum is valid),
 the build of the package will be started, unless all build slots
 are currently in use, or other dependencies not yet downloaded
 or built.
 
-for any job, butch writes a shell script based on a template
-(either the minimalistic built-in one, or a user-supplied one),
+for any job, butch writes a shell script based on a user-supplied
+template (see sabotage linux repo for examples)
 which is then started and its output redirected into a log file.
 
 It uses a custom, ini-like package format which contains the
