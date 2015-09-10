@@ -132,6 +132,11 @@ static const char* queue_names[] = {
 	[JT_BUILD] = "build",
 };
 
+static const char* template_env_vars[] = {
+	[JT_DOWNLOAD] = "BUTCH_DOWNLOAD_TEMPLATE",
+	[JT_BUILD] = "BUTCH_BUILD_TEMPLATE"
+};
+
 #define PID_WAITING ((pid_t) -1)
 #define PID_FINISHED ((pid_t) 0)
 
@@ -251,6 +256,11 @@ static void getconfig(pkgstate* state) {
 	}
 
 #undef check_access
+	int i;
+	for (i=0;i<JT_MAX;i++)
+		if(!getenv(template_env_vars[i]))
+			die(stringptr_format("required env var %s not set!\n", template_env_vars[i]));
+
 	getconfig_skip(state);
 	state->depflags = getconfig_deps(state);
 }
@@ -531,32 +541,6 @@ static stringptr* make_config(pkgconfig* cfg) {
 #undef EXPORT
 }
 
-static const stringptr* default_scripts[] = {
-	[JT_DOWNLOAD] = SPL(
-	"#!/bin/sh\n"
-	"%BUTCH_CONFIG\n"
-	"export butch_package_name=%BUTCH_PACKAGE_NAME\n"
-	"butch_cache_dir=\"$C\"\n"
-	"for url in %BUTCH_MIRROR_URLS ; do\n"
-	"wget -O \"$butch_cache_dir/%BUTCH_TARBALL\" \"$url\" && break\ndone\n"
-	),
-	[JT_BUILD] = SPL(
-	"#!/bin/sh\n"
-	"%BUTCH_CONFIG\n"
-	"butch_package_name=%BUTCH_PACKAGE_NAME\n"
-	"butch_install_dir=\"$R\"\n"
-	"butch_cache_dir=\"$C\"\n\n"
-	"[ -z \"$CC\" ]  && CC=cc\n"
-	"if %BUTCH_HAVE_TARBALL ; then\n"
-	"\tcd \"$S/build\"\n"
-	"\t[ -e \"%BUTCH_TARDIR\" ] && rm -rf \"%BUTCH_TARDIR\"\n"
-	"\ttar xf \"$butch_cache_dir/%BUTCH_TARBALL\" || (echo tarball error; exit 1)\n"
-	"\tcd \"$S/build/%BUTCH_TARDIR\"\n"
-	"fi\n"
-	"%BUTCH_BUILDSCRIPT\n"
-	),
-};
-
 static stringptr *get_mirror_urls(pkgdata* data) {
 	size_t i = 0;
 	stringptr *new = stringptr_new(0);
@@ -571,10 +555,7 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 	static const char* prefixes[] = { [JT_DOWNLOAD] = "dl", [JT_BUILD] = "build", };
 	const char *prefix = prefixes[ptype];
 
-	static const char* template_env_vars[] = { [JT_DOWNLOAD] = "BUTCH_DOWNLOAD_TEMPLATE", [JT_BUILD] = "BUTCH_BUILD_TEMPLATE" };
 	char *custom_template =  getenv(template_env_vars[ptype]);
-
-	const stringptr* default_script = default_scripts[ptype];;
 
 	item->scripts.filename = stringptr_format("%s/%s_%s.sh", state->cfg.builddir.ptr, prefix, item->name->ptr);
 	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr);
@@ -592,16 +573,8 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 
 	stringptr* buildscr = (ptype == JT_BUILD ? stringptrlist_tostring(data->buildscript) : SPL(""));
 
-	if(custom_template) {
-		temp = stringptr_fromfile(custom_template);
-		if(!temp) {
-			log_puts(2, SPL("error reading custom_template, using default one\n"));
-			goto def_script;
-		}
-	} else {
-		def_script:
-		temp = stringptr_copy((stringptr*) default_script);
-	}
+	temp = stringptr_fromfile(custom_template);
+	if(!temp) die(SPL("error reading custom_template, using default one\n"));
 
 	temp2 = stringptr_replace(temp, SPL("%BUTCH_CONFIG"), config);
 	stringptr_free(temp); temp = temp2;
