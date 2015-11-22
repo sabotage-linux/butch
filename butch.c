@@ -36,11 +36,10 @@
 #include "../lib/include/filelib.h"
 #include "../lib/include/timelib.h"
 #include "../lib/include/macros.h"
-
-#include "sha2/sha2.h"
 #include "../lib/include/hashlist.h"
+#include "../lib/include/sha512.h"
 
-#define VERSION "0.6.0"
+#define VERSION "0.6.1"
 
 #ifndef NUM_DL_THREADS
 #define NUM_DL_THREADS 16
@@ -266,26 +265,36 @@ static void getconfig(pkgstate* state) {
 }
 
 /* outbuf must be at least 128+1 bytes */
-static int sha512_hash(const char* filename, char *outbuf) {
+static void sha512_to_str(const unsigned char hash[64],char outbuf[129]) {
+	size_t i;
+	for (i = 0; i<64; ++i) {
+		outbuf[2 * i] = "0123456789abcdef"[15 & (hash[i] >> 4)];
+		outbuf[2 * i + 1] = "0123456789abcdef"[15 & hash[i]];
+	}
+	outbuf[2 * i] = 0;
+}
+
+static int sha512_hash(const char* filename, char outbuf[129]) {
 	int fd;
-	SHA512_CTX ctx;
+	sha512_ctx ctx;
 	ssize_t nread;
 	char buf[4*1024];
 	int success = 0;
 
 	fd = open(filename, O_RDONLY);
 	if(fd == -1) return 0;
-	SHA512_Init(&ctx);
+	sha512_init(&ctx);
 	while(1) {
 		nread = read(fd, buf, sizeof(buf));
 		if(nread < 0) goto err;
 		else if(nread == 0) break;
-		SHA512_Update(&ctx, (const uint8_t*) buf, nread);
+		sha512_update(&ctx, (const uint8_t*) buf, nread);
 	}
 	success = 1;
+	unsigned char* hash = sha512_end(&ctx);
+	sha512_to_str(hash, outbuf);
 	err:
 	close(fd);
-	SHA512_End(&ctx, outbuf);
 	return success;
 }
 
