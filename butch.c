@@ -945,7 +945,10 @@ int main(int argc, char** argv) {
 
 	stringptr *curr_pkg;
 	sblist_iter(packages2install, curr_pkg) {
-		const int force[] = { [PKGC_REBUILD] = 1,  [PKGC_INSTALL] = 0 };
+		const int force[] = {
+			[PKGC_REBUILD] = 1,
+			[PKGC_INSTALL] = 0,
+			[PKGC_PREFETCH] = 1 };
 		queue_package(&state, curr_pkg, JT_DOWNLOAD, force[mode]);
 		if(mode != PKGC_PREFETCH)
 			queue_package(&state, curr_pkg, JT_BUILD, force[mode]);
