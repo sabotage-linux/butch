@@ -22,11 +22,12 @@ which is then started and its output redirected into a log file.
 It uses a custom, ini-like package format which contains the
 following information:
 - dependency information (section deps)
-- information about a tarball (section main)
+- information about a tarball (section vars)
   (can contain source or binaries)
   - filesize
   - sha512 hash
   - tardir, if the tarball doesnt extract to a dir of the same name
+  - other variables
 - mirror information (section mirrors)
 - build section (required to be the last section in the file)
   the contents of the build section are copied verbatim into
@@ -44,7 +45,7 @@ example package script:
     package-foo
     package-bar
     
-    [main]
+    [vars]
     filesize=1024
     sha512=deadbeef
     tardir=foobar-4.2
