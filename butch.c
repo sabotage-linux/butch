@@ -48,7 +48,7 @@
 #define NUM_BUILD_THREADS 1
 #endif
 #ifndef SLEEP_MS
-#define SLEEP_MS 500
+#define SLEEP_MS 100
 #endif
 
 typedef enum {
