@@ -39,7 +39,7 @@
 #include "../lib/include/hashlist.h"
 #include "../lib/include/sha512.h"
 
-#define VERSION "0.6.1"
+#define VERSION "0.6.6"
 
 #ifndef NUM_DL_THREADS
 #define NUM_DL_THREADS 16
@@ -90,6 +90,7 @@ typedef struct {
 typedef struct {
 	stringptr installroot;
 	stringptr pkgroot;
+	stringptr pkgpath;
 	stringptr filecache;
 	stringptr arch;
 	stringptr logdir;
@@ -299,7 +300,15 @@ static int sha512_hash(const char* filename, char outbuf[129]) {
 }
 
 static void get_package_filename(pkgstate *state, stringptr* packagename, char* buf, size_t buflen) {
-	ulz_snprintf(buf, buflen, "%s/pkg/%s", state->cfg.pkgroot.ptr, packagename->ptr);
+	ulz_snprintf(buf, buflen, "%s/pkg/%s/%s", state->cfg.pkgroot.ptr, packagename->ptr, packagename->ptr);
+	if(access(buf, R_OK) == -1) {
+		ulz_snprintf(buf, buflen, "%s/pkg/%s", state->cfg.pkgroot.ptr, packagename->ptr);
+		if(access(buf, R_OK) == -1) goto err;
+	}
+	return;
+	err:
+	log_perror(packagename->ptr);
+	die(SPL("package not existing\n"));
 }
 
 static int package_exists(pkgstate *state, stringptr* packagename) {
@@ -329,7 +338,6 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 	stringptr* fc = stringptr_fromfile(buf);
 	stringptr val;
 
-	if(!fc) goto err;
 	stringptrlist* ini = stringptr_linesplit(fc);
 	size_t start = 0;
 
@@ -396,9 +404,6 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 	stringptrlist_free(ini);
 	stringptr_free(fc);
 	return;
-	err:
-	log_perror(packagename->ptr);
-	die(SPL("package not existing\n"));
 }
 
 static void write_installed_dat(pkgstate* state);
@@ -542,6 +547,7 @@ static stringptr* make_config(pkgconfig* cfg) {
 		EXPORT("A", &cfg->arch),
 		EXPORT("R", &cfg->installroot),
 		EXPORT("S", &cfg->pkgroot),
+		EXPORT("P", &cfg->pkgpath),
 		EXPORT("C", &cfg->filecache),
 		EXPORT("K", &cfg->keep),
 		EXPORT("B", &cfg->builddir),
@@ -569,7 +575,10 @@ static int create_script(jobtype ptype, pkgstate* state, pkg_exec* item, pkgdata
 	item->scripts.filename = stringptr_format("%s/%s_%s.sh", state->cfg.builddir.ptr, prefix, item->name->ptr);
 	item->scripts.stdoutfn = stringptr_format("%s/%s_%s.log", state->cfg.logdir.ptr, prefix, item->name->ptr);
 
-	temp = make_config(&state->cfg);
+	pkgconfig* c = &state->cfg;
+	c->pkgpath = *(stringptr_concat(&c->pkgroot, SPL("/pkg/"), item->name, SPNIL));
+
+	temp = make_config(c);
 	vars = stringptrlist_tostring(data->vars);
 	config = stringptr_concat(temp, vars, SPNIL);
 	stringptr_free(temp); stringptr_free(vars);
