@@ -505,11 +505,6 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 
 	if(is_in_queue(packagename, queue)) goto end;
 
-	if(!force && is_installed(state, packagename)) {
-		ulz_fprintf(1, "package %s is already installed, skipping %s\n", packagename->ptr, queue_names[jt]);
-		goto end;
-	}
-
 	uint32_t hash = stringptr_hash(packagename);
 	pkgdata* pkg = packagelist_get(state->package_list, packagename, hash);
 	unsigned i;
@@ -522,6 +517,11 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 	for(i = 0; i < stringptrlist_getsize(pkg->deps); i++) {
 		queue_package(state, stringptrlist_get(pkg->deps, i), jt, 0); // omg recursion
 		pkg = packagelist_get(state->package_list, packagename, hash);
+	}
+
+	if(!force && is_installed(state, packagename)) {
+		ulz_fprintf(1, "package %s is already installed, skipping %s\n", packagename->ptr, queue_names[jt]);
+		goto end;
 	}
 
 	if(
