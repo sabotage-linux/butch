@@ -51,6 +51,8 @@
 #define SLEEP_MS 100
 #endif
 
+#define OPTIONS_SEPARATOR '.'
+
 typedef enum {
 	PKGC_NONE = 0,
 	PKGC_INSTALL,
@@ -73,6 +75,7 @@ typedef struct {
 	stringptrlist* mirrors;
 	stringptrlist* buildscript;
 	stringptrlist* vars;
+	stringptrlist* options;
 } pkgdata;
 
 typedef struct {
@@ -320,19 +323,65 @@ static void add_var(stringptrlist *list, stringptr *key, stringptr *value) {
 	stringptr_free(temp);
 }
 
-// contract: out is already zeroed and contains only name
-static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdata* out) {
+static void package_get_deps(pkgstate *state, stringptrlist* ini, pkgdata* out) {
+	ini_section sec = iniparser_get_section(ini, SPL("deps"));
+	if(!out->deps) out->deps = stringptrlist_new(sec.linecount);
+
+	static const struct { const stringptr secname; deptypes dt; } depmap[] = {
+		{ .secname = SPINITIALIZER("deps"), .dt = DT_BUILD },
+		{ .secname = SPINITIALIZER("deps.host"), .dt = DT_HOST },
+		{ .secname = SPINITIALIZER("deps.run"), .dt = DT_RUN },
+	};
+	for(size_t i = 0; i < ARRAY_SIZE(depmap); i++) {
+		if(state->depflags & depmap[i].dt) {
+			sec = iniparser_get_section(ini, &depmap[i].secname);
+			for(size_t start = sec.startline; start < sec.startline + sec.linecount; start++) {
+				stringptr *tmp = stringptrlist_get(ini, start);
+				if(tmp->size && in_skip_list(state, tmp) == -1) stringptrlist_add_strdup(out->deps, tmp);
+			}
+		}
+	}
+}
+
+static void package_get_vars(pkgstate* state, stringptrlist* ini, pkgdata* out) {
+	(void) state;
+	ini_section sec = iniparser_get_section(ini, SPL("vars"));
+	if(!out->vars) out->vars = stringptrlist_new(sec.linecount ? sec.linecount : 1);
+	for(size_t start = sec.startline; start < sec.startline + sec.linecount; start++) {
+		stringptr *tmp = stringptrlist_get(ini, start);
+		stringptrlist_add_strdup(out->vars, tmp);
+	}
+}
+
+static void ini_from_packagename(pkgstate *state,
+            stringptr* packagename, stringptr* option,
+            stringptr** out_fc, stringptrlist **out_ini) {
+	stringptr* pname = packagename;
+	*out_fc = 0, *out_ini = 0;
+	if(option) {
+		static const char sepbuf[2] = { OPTIONS_SEPARATOR, 0};
+		static const stringptr sep = {.ptr = (char*)sepbuf, .size = 1};
+		pname = stringptr_concat(packagename, &sep, option, SPNIL);
+		if(!pname) return;
+	}
 	char buf[256];
-	get_package_filename(state, packagename, buf, sizeof(buf));
+	get_package_filename(state, pname, buf, sizeof(buf));
+	if(pname != packagename) stringptr_free(pname);
+	*out_fc = stringptr_fromfile(buf);
+	if(!*out_fc) return;
+	*out_ini = stringptr_linesplit(*out_fc);
+}
 
-	ini_section sec;
-	stringptr* fc = stringptr_fromfile(buf);
-	stringptr val;
+// contract: out is already zeroed and contains only name and options
+static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdata* out) {
+	stringptr* fc, val;
+	stringptrlist* ini;
 
+	ini_from_packagename(state, packagename, 0, &fc, &ini);
 	if(!fc) goto err;
-	stringptrlist* ini = stringptr_linesplit(fc);
-	size_t start = 0;
 
+	size_t start = 0;
+	ini_section sec;
 	stringptr* tmp;
 
 	sec = iniparser_get_section(ini, SPL("mirrors"));
@@ -343,31 +392,9 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 		if(tmp->size) stringptrlist_add_strdup(out->mirrors, tmp);
 	}
 
-	sec = iniparser_get_section(ini, SPL("deps"));
-	out->deps = stringptrlist_new(sec.linecount);
+	package_get_deps(state, ini, out);
+	package_get_vars(state, ini, out);
 
-	static const struct { const stringptr secname; deptypes dt; } depmap[] = {
-		{ .secname = SPINITIALIZER("deps"), .dt = DT_BUILD },
-		{ .secname = SPINITIALIZER("deps.host"), .dt = DT_HOST },
-		{ .secname = SPINITIALIZER("deps.run"), .dt = DT_RUN },
-	};
-	size_t i;
-	for(i = 0; i < ARRAY_SIZE(depmap); i++) {
-		if(state->depflags & depmap[i].dt) {
-			sec = iniparser_get_section(ini, &depmap[i].secname);
-			for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
-				tmp = stringptrlist_get(ini, start);
-				if(tmp->size && in_skip_list(state, tmp) == -1) stringptrlist_add_strdup(out->deps, tmp);
-			}
-		}
-	}
-
-	sec = iniparser_get_section(ini, SPL("vars"));
-	out->vars = stringptrlist_new(sec.linecount ? sec.linecount : 1);
-	for(start = sec.startline; start < sec.startline + sec.linecount; start++) {
-		tmp = stringptrlist_get(ini, start);
-		stringptrlist_add_strdup(out->vars, tmp);
-	}
 	sec = iniparser_get_section(ini, SPL("main"));
 	iniparser_getvalue(ini, &sec, SPL("tardir"), &val);
 	if(val.size) add_var(out->vars, SPL("tardir"), &val);
@@ -395,6 +422,25 @@ static void get_package_contents(pkgstate *state, stringptr* packagename, pkgdat
 
 	stringptrlist_free(ini);
 	stringptr_free(fc);
+
+	if(out->options) {
+		stringptr *o;
+		sblist_iter(out->options, o) {
+			ini_from_packagename(state, packagename, o, &fc, &ini);
+			tmp = stringptr_concat(SPL("option_"), o, SPNIL);
+			if(tmp) {
+				add_var(out->vars, tmp, SPL("1"));
+				stringptr_free(tmp);
+			}
+			if(ini) {
+				package_get_deps(state, ini, out);
+				package_get_vars(state, ini, out);
+				stringptrlist_free(ini);
+			}
+			if(fc) stringptr_free(fc);
+		}
+	}
+
 	return;
 	err:
 	log_perror(packagename->ptr);
@@ -444,6 +490,7 @@ static void free_package_data(pkgdata* data) {
 	stringptrlist_freeall(data->deps);
 	stringptrlist_freeall(data->mirrors);
 	stringptrlist_freeall(data->vars);
+	if(data->options) stringptrlist_free(data->options);
 	stringptr_free(data->name);
 }
 
@@ -479,6 +526,26 @@ static pkgdata* packagelist_add(hashlist* list, stringptr* name, uint32_t hash) 
 	return packagelist_get(list, name, hash);
 }
 
+/* returns a list of options *and* modifies packagename to contain only
+   the packagename part before the first OPTIONS_SEPARATOR */
+stringptrlist* get_package_options(stringptr* packagename) {
+	char *q, *p = strchr(packagename->ptr, OPTIONS_SEPARATOR);
+	if(!p) return 0;
+	stringptrlist *o = stringptrlist_new(4);
+	if(!o) return 0;
+	packagename->size = p - packagename->ptr;
+	do {
+		*p = 0;
+		p++;
+		stringptr n = {.ptr = p};
+		q = strchr(p, OPTIONS_SEPARATOR);
+		n.size = q ? q - p : strlen(p);
+		p = q;
+		stringptrlist_add(o, n.ptr, n.size);
+	} while(q);
+	return o;
+}
+
 static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, int force) {
 	static int depth = 0;
 	depth++;
@@ -487,6 +554,9 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 		goto end;
 	}
 	if(!packagename->size) goto end;
+
+	stringptrlist* options = get_package_options(packagename);
+
 	if(in_skip_list(state, packagename) >= 0) goto end;
 
 	sblist* queue = state->queue[jt];
@@ -506,6 +576,8 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 
 	if(!pkg) {
 		pkg = packagelist_add(state->package_list, packagename, hash);
+		pkg->options = options;
+		options = 0;
 		get_package_contents(state, packagename, pkg);
 	}
 
@@ -527,6 +599,7 @@ static void queue_package(pkgstate* state, stringptr* packagename, jobtype jt, i
 		add_queue(packagename, queue);
 	}
 end:
+	if(options) stringptrlist_free(options);
 	depth--;
 
 }
@@ -948,12 +1021,13 @@ int main(int argc, char** argv) {
 		if(mode != PKGC_PREFETCH)
 			queue_package(&state, curr_pkg, JT_BUILD, force[mode]);
 	}
-	stringptrlist_freeall(packages2install);
 
 	print_info(&state);
 	prepare_slots(&state);
 
 	while(process_queue(&state)) msleep(SLEEP_MS);
+
+	stringptrlist_freeall(packages2install);
 
 	int failed = stringptrlist_getsize(state.errors[JT_BUILD]) != 0;
 
