@@ -457,10 +457,7 @@ static int is_in_queue(stringptr* packagename, sblist* queue) {
 }
 
 static void add_queue(stringptr* packagename, sblist* queue) {
-	pkg_exec execdata;
-	memset(&execdata, 0, sizeof(execdata));
-	execdata.pid = PID_WAITING;
-	execdata.name = stringptr_copy(packagename);
+	pkg_exec execdata = {.pid = PID_WAITING, .name = stringptr_copy(packagename)};
 	sblist_add(queue, &execdata);
 }
 
@@ -477,9 +474,7 @@ static pkgdata* packagelist_get(hashlist* list, stringptr* name, uint32_t hash) 
 }
 
 static pkgdata* packagelist_add(hashlist* list, stringptr* name, uint32_t hash) {
-	pkgdata pkg_empty;
-	memset(&pkg_empty, 0, sizeof(pkg_empty));
-	pkg_empty.name = stringptr_copy(name);
+	pkgdata pkg_empty = {.name = stringptr_copy(name)};
 	hashlist_add(list, hash, &pkg_empty);
 	return packagelist_get(list, name, hash);
 }
