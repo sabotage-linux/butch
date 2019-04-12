@@ -16,6 +16,8 @@
 
  */
 
+#pragma RcB2 CFLAGS "-std=gnu99"
+#define _POSIX_C_SOURCE 200809L
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>

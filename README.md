@@ -65,9 +65,9 @@ Installation
     cd butch
     git clone https://github.com/sabotage-linux/butch
     git clone https://github.com/rofl0r/libulz lib
-    git clone https://github.com/rofl0r/rcb
-    export PATH=$PATH:/tmp/butch/rcb
-    ln -s /tmp/butch/rcb/rcb.pl /tmp/butch/rcb/rcb
+    git clone https://github.com/rofl0r/rcb2
+    export PATH=$PATH:/tmp/butch/rcb2
+    ln -s /tmp/butch/rcb/rcb2.py /tmp/butch/rcb2/rcb2
     cd butch
     make
 
